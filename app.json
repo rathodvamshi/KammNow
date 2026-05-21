@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "KaamNow",
+    "slug": "kaamnow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "scheme": "kaamnow",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A2340"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.kaamnow.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "KaamNow needs your location to show nearby jobs.",
+        "NSMicrophoneUsageDescription": "KaamNow needs mic access for voice job descriptions.",
+        "NSCameraUsageDescription": "KaamNow needs camera access to upload your profile photo.",
+        "NSPhotoLibraryUsageDescription": "KaamNow needs photo access to set your profile picture."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A2340"
+      },
+      "package": "com.kaamnow.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow KaamNow to use your location for nearby jobs."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#FF6B00"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
