@@ -289,6 +289,22 @@ export default function HomeScreen() {
   const isHeaderStuckRef = useRef(false);
   const [isHeaderStuck, setIsHeaderStuck] = useState(false);
 
+  // Smooth collapse/fade animations for the "Jobs Near You" title row
+  const titleStartShrink = Math.max(0, stickyHeaderY - 80);
+  const titleEndShrink = Math.max(0, stickyHeaderY);
+
+  const animatedTitleHeight = scrollY.interpolate({
+    inputRange: [0, titleStartShrink, titleEndShrink],
+    outputRange: [36, 36, 0],
+    extrapolate: 'clamp',
+  });
+
+  const animatedTitleOpacity = scrollY.interpolate({
+    inputRange: [0, titleStartShrink, titleEndShrink - 20],
+    outputRange: [1, 1, 0],
+    extrapolate: 'clamp',
+  });
+
   const BOTTOM_NAV_HEIGHT = Platform.OS === 'ios' ? 82 : 62;
 
   const [activeViewRole, setActiveViewRole] = useState(currentRole);
@@ -682,7 +698,11 @@ export default function HomeScreen() {
   const handleSelectCategory = useCallback((id: string) => {
     setSelectedCategory(id);
     setPage(1);
-  }, []);
+    // If the header is stuck, lock the scroll position to keep it stuck and prevent jumping
+    if (isHeaderStuckRef.current) {
+      mainScrollViewRef.current?.scrollTo({ y: stickyHeaderY, animated: false });
+    }
+  }, [stickyHeaderY]);
 
   const renderFooter = () => (
     <PaginationBar
@@ -1057,20 +1077,27 @@ export default function HomeScreen() {
               stickyHeaderY={stickyHeaderY}
             />
 
-            {/* "Jobs Near You" title row */}
-            {!isHeaderStuck && (
-              <View style={styles.sectionHead}>
-                <View style={styles.sectionTitleRow}>
-                  <View style={styles.sectionIconWrap}>
-                    <Ionicons name="location" size={14} color="#E91E63" />
-                  </View>
-                  <Text style={styles.sectionTitle}>Jobs Near You</Text>
-                  <View style={styles.radiusDistanceBadge}>
-                    <Text style={styles.radiusDistanceBadgeText}>within {radiusKm} km</Text>
-                  </View>
+            {/* "Jobs Near You" title row - animated collapse on scroll */}
+            <Animated.View
+              style={[
+                styles.sectionHead,
+                {
+                  height: animatedTitleHeight,
+                  opacity: animatedTitleOpacity,
+                  overflow: 'hidden',
+                }
+              ]}
+            >
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionIconWrap}>
+                  <Ionicons name="location" size={14} color="#E91E63" />
+                </View>
+                <Text style={styles.sectionTitle}>Jobs Near You</Text>
+                <View style={styles.radiusDistanceBadge}>
+                  <Text style={styles.radiusDistanceBadgeText}>within {radiusKm} km</Text>
                 </View>
               </View>
-            )}
+            </Animated.View>
 
             {/* Combined Filters Row: Radius (Quantity selector) + Sort & Pay dropdowns */}
             <View style={styles.combinedFiltersRow}>
@@ -1113,6 +1140,8 @@ export default function HomeScreen() {
                 onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
               />
             </View>
+            {/* Spacing gap that matches background color to clip scrolling cards when stuck */}
+            <View style={{ height: 12, backgroundColor: Colors.background }} />
           </View>
         ) : (
           <View />
@@ -1120,7 +1149,7 @@ export default function HomeScreen() {
 
         {/* child[3]: Job cards — only for seeker */}
         {activeViewRole === 'seeker' && (
-          <View style={{ backgroundColor: Colors.background }}>
+          <View style={[styles.jobListContainer, { minHeight: windowHeight - (isHeaderStuck ? 130 : 380) - BOTTOM_NAV_HEIGHT }]}>
             {isLoadingJobs
               ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
               : paginatedJobs.length === 0
@@ -1516,6 +1545,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background, // upgraded token: #F8F9FB
   },
+  jobListContainer: {
+    backgroundColor: Colors.background,
+    paddingTop: 0,
+  },
   bottomNavWrapper: {
     position: 'absolute',
     bottom: 0,
@@ -1529,6 +1562,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.gray1, // Softer gray1 boundary
     marginTop: 0, // No negative margin to ensure smooth sticky behavior on scroll
+    paddingTop: 8, // Stable top padding
     paddingBottom: 6, // stable bottom breathing room
     // High-end subtle floating shadow
     shadowColor: '#000',
@@ -1538,8 +1572,8 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   premiumStickyHeaderStuck: {
-    paddingTop: 8, // Sufficient top padding to give icons breathing room from the top edge when stuck
-    paddingBottom: 4,
+    paddingTop: 8, // Match stable top padding
+    paddingBottom: 6, // Match stable bottom padding
     backgroundColor: Colors.white,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },

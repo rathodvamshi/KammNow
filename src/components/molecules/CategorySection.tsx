@@ -334,12 +334,6 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
     return () => node.removeEventListener('wheel', onWheel);
   }, []);
 
-  const getItemLayout = useCallback((_: any, index: number) => ({
-    length: (isCompact ? 48 : ITEM_WIDTH) + ITEM_GAP,
-    offset: ((isCompact ? 48 : ITEM_WIDTH) + ITEM_GAP) * index,
-    index,
-  }), [isCompact]);
-
   const startShrink = stickyHeaderY ? Math.max(0, stickyHeaderY - 80) : 170;
   const endShrink = stickyHeaderY ? Math.max(0, stickyHeaderY) : 250;
 
@@ -373,7 +367,6 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
         scrollEnabled
         bounces
         alwaysBounceHorizontal
-        getItemLayout={getItemLayout}
         contentContainerStyle={[
           styles.listContent,
           { paddingVertical: listPaddingVertical }
