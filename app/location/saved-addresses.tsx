@@ -22,10 +22,15 @@ import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '../../src
 import { useAddressStore, type SavedAddress } from '../../src/store/addressStore';
 import { useLocationStore } from '../../src/store/locationStore';
 import { formatSavedAddress, reverseGeocode } from '../../src/utils/geocoding';
+import { BottomNav } from '../../src/components/organisms/BottomNav';
+import { useUIStore } from '../../src/store/uiStore';
 
 const ACCENT_COLOR = '#E91E63'; // Hot Pink / Rose Zepto theme color
 
+const BOTTOM_NAV_PAD = Platform.OS === 'ios' ? 100 : 80;
+
 export default function SavedAddressesScreen() {
+  const { currentRole } = useUIStore();
   const { savedAddresses, deleteAddress, setDefault, setActive, activeAddressId, isLoaded, loadFromStorage, addAddress } = useAddressStore();
   const { updateLocation } = useLocationStore();
   const [searchQuery, setSearchQuery] = useState('');
@@ -162,11 +167,15 @@ export default function SavedAddressesScreen() {
   };
 
   return (
+    <View style={styles.screenRoot}>
     <SafeAreaView style={styles.screen}>
       <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <TouchableOpacity
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/'))}
+            style={styles.backBtn}
+          >
             <Ionicons name="chevron-back" size={24} color={Colors.ink} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Select Location</Text>
@@ -288,7 +297,10 @@ export default function SavedAddressesScreen() {
               {index === filteredAddresses.length - 1 && <View style={styles.listBottomRounded} />}
             </View>
           )}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            currentRole === 'seeker' && { paddingBottom: BOTTOM_NAV_PAD },
+          ]}
         />
 
         {/* Custom Premium Options Bottom Sheet */}
@@ -385,10 +397,13 @@ export default function SavedAddressesScreen() {
         )}
       </Animated.View>
     </SafeAreaView>
+    {currentRole === 'seeker' && <BottomNav />}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screenRoot: { flex: 1, backgroundColor: '#F5F6F8' },
   screen: { flex: 1, backgroundColor: '#F5F6F8' },
   container: { flex: 1 },
 

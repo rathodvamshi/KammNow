@@ -76,7 +76,11 @@ export const MOCK_JOBS: Job[] = [
     stay_included: false,
     travel_allowance: true,
     language_pref: 'Telugu, Hindi',
-    contact_phone: '+919876543210'
+    contact_phone: '+919876543210',
+    required_skills: ['Bike Riding', 'Driving'],
+    experience_required: 'No Experience',
+    same_day_payment: false,
+    salary_negotiable: false,
   },
   {
     id: 'job-002',
@@ -119,7 +123,11 @@ export const MOCK_JOBS: Job[] = [
     stay_included: true,
     travel_allowance: true,
     language_pref: 'Telugu, Hindi',
-    contact_phone: '+919876543210'
+    contact_phone: '+919876543210',
+    required_skills: ['Communication', 'Customer Handling'],
+    experience_required: '1+ events',
+    same_day_payment: true,
+    overtime_available: true,
   },
   {
     id: 'job-003',
@@ -162,7 +170,13 @@ export const MOCK_JOBS: Job[] = [
     stay_included: false,
     travel_allowance: false,
     language_pref: 'Telugu, Hindi',
-    contact_phone: '+919876543210'
+    contact_phone: '+919876543210',
+    required_skills: ['Customer Handling'],
+    experience_required: '6+ months retail',
+    joining_date: '1 Jun 2026',
+    working_days_per_week: 6,
+    salary_negotiable: true,
+    pf_esi_included: true,
   },
   {
     id: 'job-004',
@@ -205,7 +219,10 @@ export const MOCK_JOBS: Job[] = [
     stay_included: false,
     travel_allowance: false,
     language_pref: 'Telugu, Hindi',
-    contact_phone: '+919876543210'
+    contact_phone: '+919876543210',
+    required_skills: ['Heavy Lifting'],
+    experience_required: 'No Experience',
+    gender_preference: 'male',
   },
   {
     id: 'job-005',

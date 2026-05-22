@@ -22,7 +22,7 @@ interface NavItem {
 
 const SEEKER_NAV_ITEMS: NavItem[] = [
   { icon: 'home-outline', iconActive: 'home', label: 'Home', href: '/(tabs)/' },
-  { icon: 'search-outline', iconActive: 'search', label: 'Search', href: '/search' },
+  { icon: 'location-outline', iconActive: 'location', label: 'Area', href: '/location/saved-addresses' },
   { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'My Gigs', href: '/(tabs)/my-jobs' },
   { icon: 'mail-outline', iconActive: 'mail', label: 'Inbox', href: '/(tabs)/inbox', badge: true },
   { icon: 'person-outline', iconActive: 'person', label: 'Profile', href: '/(tabs)/profile' },
@@ -44,6 +44,7 @@ export const BottomNav: React.FC = () => {
 
   const isActive = (href: string) => {
     if (href === '/(tabs)/') return pathname === '/' || pathname === '/(tabs)';
+    if (href === '/location/saved-addresses') return pathname.startsWith('/location');
     return pathname.includes(href.replace('/(tabs)/', ''));
   };
 

@@ -51,7 +51,7 @@ const LANGUAGES = [
 ];
 
 const CATEGORIES: CategoryItem[] = [
-  { id: 'all', name: 'Gigs', iconName: 'grid-outline', bgColor: '#E3F2FD', iconColor: '#1E88E5' },
+  { id: 'all', name: 'All Gigs', iconName: 'grid-outline', bgColor: '#E3F2FD', iconColor: '#1E88E5' },
   { id: 'urgent', name: 'Urgent', iconName: 'flash-outline', bgColor: '#FFF8E1', iconColor: '#FFB300', badge: 'HOT' },
   { id: 'delivery', name: 'Delivery', iconName: 'bicycle-outline', bgColor: '#FFF3E0', iconColor: '#F57C00' },
   { id: 'driver', name: 'Driver', iconName: 'car-outline', bgColor: '#E0F2F1', iconColor: '#00695C' },
@@ -81,6 +81,15 @@ const CATEGORIES: CategoryItem[] = [
 ];
 
 const PAGE_LIMIT = 10;
+
+/** Fixed layout — pinned chrome must never change height on category switch */
+const JOB_LIST_TOP_GAP = 10;
+/** Title block: gap below categories + row — used for scroll collapse */
+const STICKY_TITLE_ROW_HEIGHT = 48;
+const STICKY_STACK_VISIBLE_HEIGHT = 130;
+const SCROLL_ABOVE_STICKY_ESTIMATE = 380;
+/** Categories + filters only (no title) — fixed overlay when scrolled past header */
+const PINNED_CHROME_HEIGHT = 114;
 
 const SEARCH_PLACEHOLDERS = [
   '"delivery jobs..."',
@@ -286,6 +295,9 @@ export default function HomeScreen() {
 
   // Dynamic header stuck tracking for sizing transitions
   const [stickyHeaderY, setStickyHeaderY] = useState(380);
+  const stickyHeaderYRef = useRef(380);
+  const stickyHeaderMeasuredRef = useRef(false);
+  const inlineChromeHeightRef = useRef(0);
   const isHeaderStuckRef = useRef(false);
   const [isHeaderStuck, setIsHeaderStuck] = useState(false);
 
@@ -293,15 +305,15 @@ export default function HomeScreen() {
   const titleStartShrink = Math.max(0, stickyHeaderY - 80);
   const titleEndShrink = Math.max(0, stickyHeaderY);
 
-  const animatedTitleHeight = scrollY.interpolate({
-    inputRange: [0, titleStartShrink, titleEndShrink],
-    outputRange: [36, 36, 0],
-    extrapolate: 'clamp',
-  });
-
   const animatedTitleOpacity = scrollY.interpolate({
     inputRange: [0, titleStartShrink, titleEndShrink - 20],
     outputRange: [1, 1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const animatedTitleMaxHeight = scrollY.interpolate({
+    inputRange: [0, titleStartShrink, titleEndShrink],
+    outputRange: [STICKY_TITLE_ROW_HEIGHT, STICKY_TITLE_ROW_HEIGHT, 0],
     extrapolate: 'clamp',
   });
 
@@ -582,8 +594,9 @@ export default function HomeScreen() {
   }, [user?.skills]);
 
   // React Query for matching engine
-  const { isPending: isLoadingJobs, error, data: jobsData, refetch } = useQuery({
+  const { isPending: isLoadingJobs, isFetching: isFetchingJobs, error, data: jobsData, refetch } = useQuery({
     queryKey: ['recommendedJobs', userLat, userLng, sortBy, payTypeFilter, selectedCategory, user, searchQuery],
+    placeholderData: (previousData) => previousData,
     queryFn: () => {
       // In a real app we'd get the user from auth state
       const matchingParams = {
@@ -626,15 +639,22 @@ export default function HomeScreen() {
 
   const scrollContainerMinHeight = useMemo(() => {
     const isSearchOrEmpty = filteredJobs.length === 0;
-    if (isSearchOrEmpty && !isLoadingJobs) {
-      if (isHeaderStuck) {
-        return stickyHeaderY + windowHeight - BOTTOM_NAV_HEIGHT;
-      } else {
-        return windowHeight - BOTTOM_NAV_HEIGHT - 20;
-      }
+    if (isSearchOrEmpty && !isLoadingJobs && !isFetchingJobs) {
+      return stickyHeaderYRef.current + windowHeight - BOTTOM_NAV_HEIGHT;
     }
-    return windowHeight + (stickyHeaderY > 0 ? stickyHeaderY : 300) + 100;
-  }, [filteredJobs.length, isLoadingJobs, isHeaderStuck, stickyHeaderY, windowHeight, BOTTOM_NAV_HEIGHT]);
+    return windowHeight + (stickyHeaderYRef.current > 0 ? stickyHeaderYRef.current : 300) + 100;
+  }, [filteredJobs.length, isLoadingJobs, isFetchingJobs, windowHeight, BOTTOM_NAV_HEIGHT]);
+
+  const jobListMinHeight = useMemo(() => {
+    const headerOffset = isHeaderStuck
+      ? STICKY_STACK_VISIBLE_HEIGHT
+      : SCROLL_ABOVE_STICKY_ESTIMATE;
+    return windowHeight - headerOffset - BOTTOM_NAV_HEIGHT;
+  }, [windowHeight, BOTTOM_NAV_HEIGHT, isHeaderStuck]);
+
+  useEffect(() => {
+    stickyHeaderYRef.current = stickyHeaderY;
+  }, [stickyHeaderY]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -696,13 +716,123 @@ export default function HomeScreen() {
   );
 
   const handleSelectCategory = useCallback((id: string) => {
+    if (id === selectedCategory) return;
     setSelectedCategory(id);
     setPage(1);
-    // If the header is stuck, lock the scroll position to keep it stuck and prevent jumping
-    if (isHeaderStuckRef.current) {
-      mainScrollViewRef.current?.scrollTo({ y: stickyHeaderY, animated: false });
-    }
-  }, [stickyHeaderY]);
+    // Do not scroll when pinned — overlay is position:fixed, not ScrollView sticky
+  }, [selectedCategory]);
+
+  const renderSeekerChrome = useCallback((mode: 'inline' | 'pinned') => {
+    const isPinned = mode === 'pinned';
+    return (
+      <View
+        style={[
+          styles.premiumStickyHeader,
+          isPinned ? styles.seekerChromePinned : styles.seekerChromeInline,
+        ]}
+        onLayout={isPinned ? undefined : (e) => {
+          const { y: layoutY, height } = e.nativeEvent.layout;
+          if (height > 0) {
+            inlineChromeHeightRef.current = height;
+          }
+          if (layoutY > 0 && !stickyHeaderMeasuredRef.current) {
+            stickyHeaderMeasuredRef.current = true;
+            stickyHeaderYRef.current = layoutY;
+            setStickyHeaderY(layoutY);
+          }
+        }}
+      >
+        <CategorySection
+          categories={dynamicCategories}
+          selectedCategoryId={selectedCategory}
+          onSelectCategory={handleSelectCategory}
+          isCompact={isPinned}
+          scrollY={isPinned ? undefined : scrollY}
+          stickyHeaderY={stickyHeaderY}
+          freezeLayout={isPinned}
+        />
+
+        {!isPinned && (
+          <Animated.View
+            style={[
+              styles.sectionHead,
+              {
+                opacity: animatedTitleOpacity,
+                maxHeight: animatedTitleMaxHeight,
+                overflow: 'hidden',
+              },
+            ]}
+          >
+            <View style={styles.sectionTitleRow}>
+              <View style={styles.sectionIconWrap}>
+                <Ionicons name="location" size={14} color="#E91E63" />
+              </View>
+              <Text style={styles.sectionTitle}>Jobs Near You</Text>
+              <View style={styles.radiusDistanceBadge}>
+                <Text style={styles.radiusDistanceBadgeText}>within {radiusKm} km</Text>
+              </View>
+            </View>
+          </Animated.View>
+        )}
+
+        <View style={[styles.combinedFiltersRow, isPinned && styles.combinedFiltersRowPinned]}>
+          <View style={styles.radiusSelector}>
+            <TouchableOpacity
+              style={[styles.radiusStepBtn, radiusKm <= 1 && styles.radiusStepBtnDisabled]}
+              onPress={() => {
+                if (radiusKm > 1) {
+                  setRadiusKm((prev) => prev - 1);
+                  setPage(1);
+                }
+              }}
+              disabled={radiusKm <= 1}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={12} color={radiusKm <= 1 ? Colors.gray3 : Colors.saffron} />
+            </TouchableOpacity>
+
+            <Text style={styles.radiusValueText}>{radiusKm} km</Text>
+
+            <TouchableOpacity
+              style={[styles.radiusStepBtn, radiusKm >= 20 && styles.radiusStepBtnDisabled]}
+              onPress={() => {
+                if (radiusKm < 20) {
+                  setRadiusKm((prev) => prev + 1);
+                  setPage(1);
+                }
+              }}
+              disabled={radiusKm >= 20}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={12} color={radiusKm >= 20 ? Colors.gray3 : Colors.saffron} />
+            </TouchableOpacity>
+          </View>
+
+          <FilterBar
+            sortBy={sortBy}
+            payTypeFilter={payTypeFilter}
+            onSortChange={(s) => { setSortBy(s); setPage(1); }}
+            onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
+          />
+        </View>
+      </View>
+    );
+  }, [
+    dynamicCategories,
+    selectedCategory,
+    handleSelectCategory,
+    scrollY,
+    stickyHeaderY,
+    animatedTitleOpacity,
+    animatedTitleMaxHeight,
+    radiusKm,
+    sortBy,
+    payTypeFilter,
+    setSortBy,
+    setPayTypeFilter,
+    setRadiusKm,
+    setPage,
+  ]);
 
   const renderFooter = () => (
     <PaginationBar
@@ -715,8 +845,7 @@ export default function HomeScreen() {
   );
 
   const renderEmpty = () => {
-    // Calculate remaining screen space dynamically to center empty state below header
-    const emptyHeight = windowHeight - (isHeaderStuck ? 130 : 380) - BOTTOM_NAV_HEIGHT - 40;
+    const emptyHeight = jobListMinHeight - 40;
     return (
       <View style={[styles.emptyState, { minHeight: Math.max(emptyHeight, 300), justifyContent: 'center' }]}>
         <Text style={styles.emptyIcon}>🔍</Text>
@@ -733,8 +862,10 @@ export default function HomeScreen() {
     <View style={styles.screen}>
       <SafeAreaView style={{ backgroundColor: Colors.navy }} />
 
+      <View style={styles.scrollHost}>
       {/* ── Single scrollable surface ── */}
       <Animated.ScrollView
+        style={styles.mainScroll}
         ref={mainScrollViewRef}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -751,8 +882,7 @@ export default function HomeScreen() {
             colors={[Colors.saffron]}
           />
         }
-        // Sticky: child[2] = sticky header for seeker mode
-        stickyHeaderIndices={activeViewRole === 'seeker' ? [2] : undefined}
+        // No stickyHeaderIndices — pinned chrome uses a fixed overlay to avoid layout drift
       >
         {/* ── 0: Hero banner ── */}
         <View onLayout={(e) => { bannerHeight.current = e.nativeEvent.layout.height; }}>
@@ -1054,103 +1184,29 @@ export default function HomeScreen() {
           )}
         </Animated.View>
 
-        {/* child[2]: STICKY header — categories + Jobs Near You + all filters (seeker only) */}
+        {/* child[2]: Inline header OR fixed spacer — spacer keeps scroll offset stable when pinned */}
         {activeViewRole === 'seeker' ? (
-          <View
-            style={[
-              styles.premiumStickyHeader,
-              isHeaderStuck && styles.premiumStickyHeaderStuck
-            ]}
-            onLayout={(e) => {
-              const layoutY = e.nativeEvent.layout.y;
-              if (layoutY > 0 && !isHeaderStuckRef.current) {
-                setStickyHeaderY(layoutY);
-              }
-            }}
-          >
-            <CategorySection
-              categories={dynamicCategories}
-              selectedCategoryId={selectedCategory}
-              onSelectCategory={handleSelectCategory}
-              isCompact={isHeaderStuck}
-              scrollY={scrollY}
-              stickyHeaderY={stickyHeaderY}
-            />
-
-            {/* "Jobs Near You" title row - animated collapse on scroll */}
-            <Animated.View
-              style={[
-                styles.sectionHead,
-                {
-                  height: animatedTitleHeight,
-                  opacity: animatedTitleOpacity,
-                  overflow: 'hidden',
-                }
-              ]}
-            >
-              <View style={styles.sectionTitleRow}>
-                <View style={styles.sectionIconWrap}>
-                  <Ionicons name="location" size={14} color="#E91E63" />
-                </View>
-                <Text style={styles.sectionTitle}>Jobs Near You</Text>
-                <View style={styles.radiusDistanceBadge}>
-                  <Text style={styles.radiusDistanceBadgeText}>within {radiusKm} km</Text>
-                </View>
-              </View>
-            </Animated.View>
-
-            {/* Combined Filters Row: Radius (Quantity selector) + Sort & Pay dropdowns */}
-            <View style={styles.combinedFiltersRow}>
-              <View style={styles.radiusSelector}>
-                <TouchableOpacity
-                  style={[styles.radiusStepBtn, radiusKm <= 1 && styles.radiusStepBtnDisabled]}
-                  onPress={() => {
-                    if (radiusKm > 1) {
-                      setRadiusKm(prev => prev - 1);
-                      setPage(1);
-                    }
-                  }}
-                  disabled={radiusKm <= 1}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="remove" size={12} color={radiusKm <= 1 ? Colors.gray3 : Colors.saffron} />
-                </TouchableOpacity>
-
-                <Text style={styles.radiusValueText}>{radiusKm} km</Text>
-
-                <TouchableOpacity
-                  style={[styles.radiusStepBtn, radiusKm >= 20 && styles.radiusStepBtnDisabled]}
-                  onPress={() => {
-                    if (radiusKm < 20) {
-                      setRadiusKm(prev => prev + 1);
-                      setPage(1);
-                    }
-                  }}
-                  disabled={radiusKm >= 20}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="add" size={12} color={radiusKm >= 20 ? Colors.gray3 : Colors.saffron} />
-                </TouchableOpacity>
-              </View>
-
-              <FilterBar
-                sortBy={sortBy}
-                payTypeFilter={payTypeFilter}
-                onSortChange={(s) => { setSortBy(s); setPage(1); }}
-                onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
-              />
-            </View>
-            {/* Spacing gap that matches background color to clip scrolling cards when stuck */}
-            <View style={{ height: 12, backgroundColor: Colors.background }} />
-          </View>
+          isHeaderStuck ? (
+            <View style={{ height: PINNED_CHROME_HEIGHT }} />
+          ) : (
+            renderSeekerChrome('inline')
+          )
         ) : (
           <View />
         )}
 
         {/* child[3]: Job cards — only for seeker */}
         {activeViewRole === 'seeker' && (
-          <View style={[styles.jobListContainer, { minHeight: windowHeight - (isHeaderStuck ? 130 : 380) - BOTTOM_NAV_HEIGHT }]}>
-            {isLoadingJobs
+          <View
+            style={[
+              styles.jobListContainer,
+              {
+                minHeight: jobListMinHeight,
+                paddingTop: JOB_LIST_TOP_GAP,
+              }
+            ]}
+          >
+            {isLoadingJobs && !jobsData
               ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
               : paginatedJobs.length === 0
                 ? renderEmpty()
@@ -1167,6 +1223,16 @@ export default function HomeScreen() {
           </View>
         )}
       </Animated.ScrollView>
+
+      {/* Fixed chrome — outside ScrollView so category taps never shift layout */}
+      {activeViewRole === 'seeker' && isHeaderStuck && (
+        <View style={styles.pinnedChromeOverlay} pointerEvents="box-none">
+          <View style={styles.pinnedChromeOverlayInner} pointerEvents="auto">
+            {renderSeekerChrome('pinned')}
+          </View>
+        </View>
+      )}
+      </View>
 
       {/* ── Bottom nav — hides on scroll down, shows on scroll up ── */}
       <Animated.View
@@ -1544,10 +1610,18 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: Colors.background, // upgraded token: #F8F9FB
+    overflow: 'hidden',
+  },
+  scrollHost: {
+    flex: 1,
+    position: 'relative',
+  },
+  mainScroll: {
+    flex: 1,
   },
   jobListContainer: {
     backgroundColor: Colors.background,
-    paddingTop: 0,
+    paddingTop: JOB_LIST_TOP_GAP,
   },
   bottomNavWrapper: {
     position: 'absolute',
@@ -1558,30 +1632,39 @@ const styles = StyleSheet.create({
   },
   premiumStickyHeader: {
     backgroundColor: Colors.white,
-    zIndex: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray1, // Softer gray1 boundary
-    marginTop: 0, // No negative margin to ensure smooth sticky behavior on scroll
-    paddingTop: 8, // Stable top padding
-    paddingBottom: 6, // stable bottom breathing room
-    // High-end subtle floating shadow
+    zIndex: 100,
+    marginTop: 0,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  premiumStickyHeaderStuck: {
-    paddingTop: 8, // Match stable top padding
-    paddingBottom: 6, // Match stable bottom padding
+  seekerChromeInline: {
+    paddingTop: 6,
+    paddingBottom: 0,
+  },
+  seekerChromePinned: {
+    paddingTop: 4,
+    paddingBottom: 0,
+  },
+  pinnedChromeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: PINNED_CHROME_HEIGHT,
+    zIndex: 200,
+  },
+  pinnedChromeOverlayInner: {
+    flex: 1,
     backgroundColor: Colors.white,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
-    shadowRadius: 10,
+    shadowRadius: 8,
     elevation: 3,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
+    overflow: 'visible',
   },
   radiusDistanceBadge: {
     backgroundColor: 'rgba(255, 107, 0, 0.08)',
@@ -2101,8 +2184,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingBottom: 2,
-    paddingTop: 6,   // tighter — closer to CategorySection
+    paddingTop: 8,
+    paddingBottom: 6,
+    height: 34,
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -2131,9 +2215,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingTop: 4,
-    paddingBottom: 6,
+    paddingTop: 0,
+    paddingBottom: 10,
     gap: 8,
+  },
+  combinedFiltersRowPinned: {
+    paddingTop: 4,
+    paddingBottom: 2,
   },
   radiusSelector: {
     flexDirection: 'row',

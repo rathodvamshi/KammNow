@@ -1,4 +1,4 @@
-import React, { memo, useRef } from 'react';
+import React, { memo, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, FontFamily, FontSize, Spacing, Shadow } from '../../theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Colors, Radius, FontFamily, FontSize, Shadow } from '../../theme';
 import { Avatar } from '../atoms/Avatar';
-import { formatDistance } from '../../utils/helpers';
+import { buildJobCardDisplay, type JobCardBenefit } from '../../utils/jobCardDisplay';
 import type { Job } from '../../types';
 
 interface JobCardProps {
@@ -20,180 +21,186 @@ interface JobCardProps {
   onApply: (job: Job) => void;
 }
 
-export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) => {
-  const slotsRemaining = job.quantity_total - job.quantity_hired;
-  const isFull = slotsRemaining <= 0;
-  const fillPercentage = Math.min((job.quantity_hired / job.quantity_total) * 100, 100);
+const BENEFIT_TONES: Record<JobCardBenefit['tone'], { bg: string; text: string; icon: string }> = {
+  saffron: { bg: Colors.saffronLight, text: Colors.saffronDark, icon: Colors.saffron },
+  green: { bg: Colors.greenLight, text: Colors.green, icon: Colors.green },
+  blue: { bg: '#E8F4FD', text: '#1565C0', icon: '#1565C0' },
+  gold: { bg: Colors.goldLight, text: Colors.goldDark, icon: Colors.gold },
+};
 
-  // Micro-interaction: card press scale
+const StatCell: React.FC<{
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}> = ({ icon, label, value }) => (
+  <View style={styles.statCell}>
+    <View style={styles.statIconWrap}>
+      <Ionicons name={icon} size={14} color={Colors.saffron} />
+    </View>
+    <Text style={styles.statLabel}>{label}</Text>
+    <Text style={styles.statValue} numberOfLines={1}>{value}</Text>
+  </View>
+);
+
+export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) => {
+  const d = useMemo(() => buildJobCardDisplay(job), [job]);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const applyScaleAnim = useRef(new Animated.Value(1)).current;
 
-  const onPressIn = () => {
-    Animated.spring(scaleAnim, { toValue: 0.985, useNativeDriver: true, friction: 8, tension: 80 }).start();
-  };
-  const onPressOut = () => {
-    Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 60 }).start();
-  };
-  const onApplyPressIn = () => {
-    Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true, friction: 8, tension: 100 }).start();
-  };
-  const onApplyPressOut = () => {
-    Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true, friction: 5, tension: 80 }).start();
-  };
+  const accentColors = d.isUrgent
+    ? (['#EF4444', '#DC2626'] as const)
+    : ([Colors.saffron, Colors.saffronDark] as const);
 
   const handleContact = () => {
     if (job.contact_phone) Linking.openURL(`tel:${job.contact_phone}`);
   };
 
-  // Pay display
-  const payPeriodLabel = job.pay_type === 'hour' ? '/hr' : job.pay_type === 'day' ? '/day' : '/mo';
-  const payFormatted = job.pay_amount >= 1000
-    ? `${(job.pay_amount / 1000).toFixed(job.pay_amount % 1000 === 0 ? 0 : 1)}K`
-    : job.pay_amount.toString();
-
-  const locationLabel = job.distance_km !== undefined && job.distance_km !== null
-    ? formatDistance(job.distance_km)
-    : job.location_name;
-
-  // Trust score tiers
-  const trustScore = job.employer_trust_score ?? 0;
-  const trustColor = trustScore >= 75 ? Colors.green : trustScore >= 50 ? Colors.gold : Colors.gray4;
-  const trustLabel = trustScore >= 75 ? 'Trusted' : trustScore >= 50 ? 'Good' : 'New';
-
-  // Urgency — drives dopamine
-  const urgency = slotsRemaining === 1 ? 'Last 1 slot!' :
-    slotsRemaining <= 3 ? `Only ${slotsRemaining} left` : null;
-
   return (
-    <Animated.View style={[styles.cardWrap, { transform: [{ scale: scaleAnim }] }]}>
+    <Animated.View style={[styles.wrap, { transform: [{ scale: scaleAnim }] }]}>
       <TouchableOpacity
-        style={styles.card}
+        style={styles.cardOuter}
         onPress={() => onPress(job)}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
+        onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.985, useNativeDriver: true, friction: 8 }).start()}
+        onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6 }).start()}
         activeOpacity={1}
       >
-        {/* ── TOP STRIP: Employer + Badges ─────────────────────────────── */}
-        <View style={styles.topRow}>
-          <View style={styles.employerBlock}>
-            <Avatar name={job.poster_name} size="sm" />
-            <View style={styles.employerInfo}>
-              <View style={styles.nameRow}>
-                <Text style={styles.employerName} numberOfLines={1}>{job.poster_name}</Text>
-                {job.employer_verified && (
-                  <View style={styles.verifiedBadge}>
-                    <Ionicons name="checkmark" size={9} color={Colors.white} />
-                  </View>
-                )}
-              </View>
-              <View style={styles.metaRow}>
-                <Ionicons name="star" size={11} color={Colors.gold} />
-                <Text style={styles.metaRating}>{(job.poster_rating ?? 5.0).toFixed(1)}</Text>
-                <View style={styles.metaDot} />
-                <View style={[styles.trustPill, { backgroundColor: trustColor + '18' }]}>
-                  <Text style={[styles.trustText, { color: trustColor }]}>{trustLabel}</Text>
+        <LinearGradient colors={accentColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.accentBar} />
+
+        <View style={styles.cardBody}>
+          {/* Header */}
+          <View style={styles.topRow}>
+            <View style={styles.categoryPill}>
+              <Text style={styles.categoryEmoji}>{d.categoryEmoji}</Text>
+              <Text style={styles.categoryText}>{d.categoryLabel}</Text>
+            </View>
+            <View style={styles.topRight}>
+              {d.isUrgent && (
+                <View style={styles.urgentBadge}>
+                  <Ionicons name="flash" size={10} color={Colors.red} />
+                  <Text style={styles.urgentText}>URGENT</Text>
                 </View>
-              </View>
+              )}
+              <Text style={styles.postedAgo}>{d.postedAgo}</Text>
             </View>
           </View>
 
-          <View style={styles.rightBadges}>
-            {job.is_urgent && (
-              <View style={styles.urgentBadge}>
-                <Ionicons name="flash" size={10} color={Colors.red} />
-                <Text style={styles.urgentText}>URGENT</Text>
+          <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
+
+          {/* Pay hero */}
+          <View style={styles.payHero}>
+            <LinearGradient
+              colors={[Colors.saffronLighter, Colors.saffronLight]}
+              style={styles.payHeroInner}
+            >
+              <View>
+                <Text style={styles.payLabel}>You earn</Text>
+                <View style={styles.payRow}>
+                  <Text style={styles.payAmount}>{d.payPrimary}</Text>
+                  <Text style={styles.payPeriod}>{d.payPeriod}</Text>
+                </View>
+                {d.payHint ? <Text style={styles.payHint}>{d.payHint}</Text> : null}
               </View>
-            )}
-          </View>
-        </View>
-
-        {/* ── TITLE + PRICE: Most important info — biggest text ─────────── */}
-        <View style={styles.titlePriceRow}>
-          <Text style={styles.jobTitle} numberOfLines={2}>{job.title}</Text>
-          <View style={styles.priceBlock}>
-            <Text style={styles.priceAmount}>₹{payFormatted}</Text>
-            <Text style={styles.pricePeriod}>{payPeriodLabel}</Text>
-          </View>
-        </View>
-
-        {/* ── META GRID: 2×2 scan-optimised info grid ─────────────────── */}
-        <View style={styles.metaGrid}>
-          <View style={styles.metaCell}>
-            <Ionicons name="location-outline" size={13} color={Colors.saffron} />
-            <Text style={styles.metaCellText} numberOfLines={1}>{locationLabel}</Text>
-          </View>
-          <View style={styles.metaCell}>
-            <Ionicons name="time-outline" size={13} color={Colors.navy2} />
-            <Text style={styles.metaCellText}>{job.work_start_time || '9 AM'} – {job.work_end_time || '6 PM'}</Text>
-          </View>
-          <View style={styles.metaCell}>
-            <Ionicons name="calendar-outline" size={13} color={Colors.navy2} />
-            <Text style={styles.metaCellText} numberOfLines={1}>{job.duration_text || 'Ongoing'}</Text>
-          </View>
-          <View style={styles.metaCell}>
-            <Ionicons name="people-outline" size={13} color={Colors.navy2} />
-            <Text style={styles.metaCellText}>{job.quantity_total} workers needed</Text>
-          </View>
-        </View>
-
-        {/* ── PERKS STRIP ─────────────────────────────────────────────── */}
-        {(job.food_included || job.stay_included || job.travel_allowance || job.payment_schedule) && (
-          <View style={styles.perksRow}>
-            {job.food_included && <View style={styles.perkTag}><Text style={styles.perkTagText}>🍱 Food</Text></View>}
-            {job.stay_included && <View style={styles.perkTag}><Text style={styles.perkTagText}>🛏 Stay</Text></View>}
-            {job.travel_allowance && <View style={styles.perkTag}><Text style={styles.perkTagText}>🚌 Travel</Text></View>}
-            {job.payment_schedule && (
-              <View style={[styles.perkTag, styles.perkTagGreen]}>
-                <Text style={[styles.perkTagText, { color: Colors.green }]}>
-                  💸 {job.payment_schedule.charAt(0).toUpperCase() + job.payment_schedule.slice(1)} Pay
-                </Text>
+              <View style={styles.payIconCircle}>
+                <Ionicons name="wallet" size={20} color={Colors.saffron} />
               </View>
-            )}
+            </LinearGradient>
           </View>
-        )}
 
-        {/* ── SLOTS PROGRESS ──────────────────────────────────────────── */}
-        <View style={styles.slotsRow}>
-          <View style={styles.progressWrap}>
-            <View style={styles.progressBg}>
-              <View style={[
-                styles.progressFill,
-                { width: `${fillPercentage}%` as any },
-                isFull && styles.progressFull,
-              ]} />
+          {/* Location */}
+          <View style={styles.locationRow}>
+            <Ionicons name="navigate-circle" size={16} color={Colors.saffron} />
+            <Text style={styles.locationText} numberOfLines={1}>{d.locationLine}</Text>
+          </View>
+
+          {/* Key stats — tap card for full schedule, skills, description */}
+          <View style={styles.statsRow}>
+            <StatCell icon="time-outline" label="Shift" value={d.shiftLine.split(' – ')[0] ?? d.shiftLine} />
+            <View style={styles.statDivider} />
+            <StatCell icon="calendar-outline" label="Duration" value={d.scheduleLine} />
+            <View style={styles.statDivider} />
+            <StatCell
+              icon="people-outline"
+              label="Open"
+              value={d.isFull ? 'Filled' : `${d.slotsRemaining} left`}
+            />
+          </View>
+
+          {/* Top perks preview */}
+          {(d.benefits.length > 0 || d.benefitsOverflow > 0) && (
+            <View style={styles.perksPreview}>
+              {d.benefits.map((b) => {
+                const tone = BENEFIT_TONES[b.tone];
+                return (
+                  <View key={b.label} style={[styles.perkDot, { backgroundColor: tone.bg }]}>
+                    <Ionicons name={b.icon} size={10} color={tone.icon} />
+                    <Text style={[styles.perkDotText, { color: tone.text }]}>{b.label}</Text>
+                  </View>
+                );
+              })}
+              {d.benefitsOverflow > 0 && (
+                <Text style={styles.perksMore}>+{d.benefitsOverflow} more</Text>
+              )}
             </View>
-            {urgency ? (
-              <Text style={styles.urgencyText}>{urgency}</Text>
-            ) : (
-              <Text style={styles.slotsText}>
-                <Text style={styles.slotsFilled}>{job.quantity_hired}</Text>/{job.quantity_total} filled
-              </Text>
-            )}
+          )}
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <View style={styles.employerBlock}>
+              <Avatar name={d.employerName} size="sm" />
+              <View style={styles.employerMeta}>
+                <View style={styles.employerNameRow}>
+                  <Text style={styles.employerName} numberOfLines={1}>{d.employerName}</Text>
+                  {d.isVerified && (
+                    <Ionicons name="checkmark-circle" size={14} color={Colors.green} />
+                  )}
+                </View>
+                <Text style={styles.employerSub} numberOfLines={1}>{d.employerMeta}</Text>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${d.fillPercent}%` as any },
+                      d.isFull && styles.progressFillFull,
+                    ]}
+                  />
+                </View>
+                <Text style={[styles.slotsText, d.slotsUrgency && styles.slotsUrgent]}>
+                  {d.slotsUrgency ?? `${job.quantity_hired}/${job.quantity_total} hired`}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.ctaCol}>
+              {d.showCall && (
+                <TouchableOpacity
+                  style={styles.callBtn}
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    handleContact();
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="call" size={16} color={Colors.navy} />
+                </TouchableOpacity>
+              )}
+              <Animated.View style={{ transform: [{ scale: applyScaleAnim }] }}>
+                <TouchableOpacity
+                  style={[styles.applyBtn, d.isFull && styles.applyBtnOff]}
+                  onPress={() => onApply(job)}
+                  onPressIn={() => Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true }).start()}
+                  onPressOut={() => Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+                  disabled={d.isFull}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.applyText}>{d.isFull ? 'Full' : 'Apply'}</Text>
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
           </View>
 
-          {/* ── CTAs ─────────────────────────────────────────────────── */}
-          <View style={styles.ctas}>
-            {job.show_phone && job.contact_phone && (
-              <TouchableOpacity style={styles.callBtn} onPress={handleContact} activeOpacity={0.8}>
-                <Ionicons name="call-outline" size={18} color={Colors.navy} />
-              </TouchableOpacity>
-            )}
-            <Animated.View style={{ transform: [{ scale: applyScaleAnim }] }}>
-              <TouchableOpacity
-                style={[styles.applyBtn, isFull && styles.applyBtnFull]}
-                onPress={() => onApply(job)}
-                onPressIn={onApplyPressIn}
-                onPressOut={onApplyPressOut}
-                disabled={isFull}
-                activeOpacity={1}
-              >
-                {!isFull && <Ionicons name="flash" size={13} color={Colors.white} />}
-                <Text style={[styles.applyBtnText, isFull && styles.applyBtnTextFull]}>
-                  {isFull ? 'Filled' : 'Apply'}
-                </Text>
-              </TouchableOpacity>
-            </Animated.View>
+          <View style={styles.detailsHint}>
+            <Text style={styles.detailsHintText}>View full details</Text>
+            <Ionicons name="chevron-forward" size={14} color={Colors.saffron} />
           </View>
         </View>
       </TouchableOpacity>
@@ -204,84 +211,47 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
 JobCard.displayName = 'JobCard';
 
 const styles = StyleSheet.create({
-  cardWrap: {
+  wrap: {
     marginHorizontal: 16,
-    marginBottom: 12,
+    marginBottom: 14,
   },
-  card: {
+  cardOuter: {
     backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    paddingHorizontal: 16,
-    paddingVertical: 18,
+    borderRadius: 20,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: Colors.gray2,
-    ...Shadow.sm,
+    borderColor: 'rgba(226, 232, 240, 0.9)',
+    ...Shadow.md,
+    ...Platform.select({
+      ios: { shadowColor: Colors.navy, shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
+    }),
   },
+  accentBar: { height: 3, width: '100%' },
+  cardBody: { padding: 16, paddingTop: 14 },
 
-  // ── Top Row ──────────────────────────────────────────────────────────────
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 14,
-  },
-  employerBlock: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    flex: 1,
+    marginBottom: 10,
   },
-  employerInfo: { flex: 1 },
-  nameRow: {
+  categoryPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginBottom: 4,
-  },
-  employerName: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    letterSpacing: -0.1,
-  },
-  verifiedBadge: {
-    width: 15,
-    height: 15,
-    borderRadius: 8,
     backgroundColor: Colors.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  metaRating: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.xs,
-    color: Colors.ink2,
-  },
-  metaDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: Colors.gray3,
-  },
-  trustPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: Radius.round,
   },
-  trustText: {
+  categoryEmoji: { fontSize: 11 },
+  categoryText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 9,
+    fontSize: 10,
+    color: Colors.white,
     letterSpacing: 0.2,
   },
-  rightBadges: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
+  topRight: { alignItems: 'flex-end', gap: 4 },
   urgentBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -293,139 +263,188 @@ const styles = StyleSheet.create({
   },
   urgentText: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 9,
+    fontSize: 8,
     color: Colors.red,
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
+  },
+  postedAgo: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
   },
 
-  // ── Title + Price ────────────────────────────────────────────────────────
-  titlePriceRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 14,
-  },
-  jobTitle: {
+  title: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 18,
+    fontSize: 19,
     color: Colors.ink,
-    lineHeight: 26,
+    lineHeight: 24,
     letterSpacing: -0.4,
-    flex: 1,
-  },
-  priceBlock: {
-    alignItems: 'flex-end',
-    paddingTop: 2,
-  },
-  priceAmount: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 20,
-    color: Colors.saffron,
-    letterSpacing: -0.5,
-    lineHeight: 26,
-  },
-  pricePeriod: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 11,
-    color: Colors.gray4,
-    marginTop: 1,
-  },
-
-  // ── Meta Grid ────────────────────────────────────────────────────────────
-  metaGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 0,
     marginBottom: 12,
-    backgroundColor: Colors.gray1,
-    borderRadius: Radius.md,
-    padding: 10,
-    rowGap: 8,
-  },
-  metaCell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    width: '50%',
-  },
-  metaCellText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.sm,
-    color: Colors.ink2,
-    flex: 1,
   },
 
-  // ── Perks ────────────────────────────────────────────────────────────────
-  perksRow: {
+  payHero: { marginBottom: 12, borderRadius: 14, overflow: 'hidden' },
+  payHeroInner: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 14,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.12)',
   },
-  perkTag: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: Radius.round,
-    backgroundColor: Colors.saffronLight,
-  },
-  perkTagGreen: {
-    backgroundColor: Colors.greenLight,
-  },
-  perkTagText: {
+  payLabel: {
     fontFamily: FontFamily.bodyMedium,
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.saffronDark,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  payRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
+  payAmount: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 26,
+    color: Colors.saffronDark,
+    letterSpacing: -0.5,
+  },
+  payPeriod: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: Colors.saffron,
+  },
+  payHint: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+    marginTop: 3,
+  },
+  payIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.sm,
   },
 
-  // ── Slots + CTAs ─────────────────────────────────────────────────────────
-  slotsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 4,
-  },
-  progressWrap: {
-    flex: 1,
-    gap: 5,
-  },
-  progressBg: {
-    height: 5,
-    backgroundColor: Colors.gray2,
-    borderRadius: Radius.round,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    backgroundColor: Colors.saffron,
-    borderRadius: Radius.round,
-  },
-  progressFull: {
-    backgroundColor: Colors.gray4,
-  },
-  slotsText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 11,
-    color: Colors.gray4,
-  },
-  slotsFilled: {
-    fontFamily: FontFamily.bodySemiBold,
-    color: Colors.ink2,
-  },
-  urgencyText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 11,
-    color: Colors.red,
-  },
-  ctas: {
+  locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: Colors.gray1,
+    borderRadius: 10,
   },
+  locationText: {
+    flex: 1,
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.ink2,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: Colors.surfaceRaised,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    marginBottom: 10,
+    paddingVertical: 10,
+  },
+  statCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4, gap: 3 },
+  statIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 9,
+    color: Colors.gray4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  statValue: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.ink,
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: Colors.gray2,
+    marginVertical: 4,
+  },
+
+  perksPreview: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+  },
+  perkDot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.round,
+  },
+  perkDotText: { fontFamily: FontFamily.bodySemiBold, fontSize: 10 },
+  perksMore: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.saffron,
+  },
+
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray1,
+  },
+  employerBlock: { flex: 1, flexDirection: 'row', gap: 10 },
+  employerMeta: { flex: 1, gap: 3 },
+  employerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  employerName: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: Colors.ink,
+    flex: 1,
+  },
+  employerSub: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+  },
+  progressTrack: {
+    height: 3,
+    backgroundColor: Colors.gray2,
+    borderRadius: 99,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  progressFill: { height: '100%', backgroundColor: Colors.saffron, borderRadius: 99 },
+  progressFillFull: { backgroundColor: Colors.gray4 },
+  slotsText: { fontFamily: FontFamily.bodyMedium, fontSize: 9, color: Colors.gray4 },
+  slotsUrgent: { color: Colors.red, fontFamily: FontFamily.bodySemiBold },
+
+  ctaCol: { alignItems: 'flex-end', gap: 8 },
   callBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: Radius.md,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: Colors.gray1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -433,27 +452,35 @@ const styles = StyleSheet.create({
     borderColor: Colors.gray2,
   },
   applyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
+    minWidth: 72,
     height: 40,
-    paddingHorizontal: 18,
-    borderRadius: Radius.md,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     backgroundColor: Colors.saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
     ...Shadow.saffron,
   },
-  applyBtnFull: {
-    backgroundColor: Colors.gray3,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  applyBtnText: {
+  applyBtnOff: { backgroundColor: Colors.gray3, shadowOpacity: 0, elevation: 0 },
+  applyText: {
     fontFamily: FontFamily.headingBold,
     fontSize: FontSize.md,
     color: Colors.white,
-    letterSpacing: 0.3,
   },
-  applyBtnTextFull: {
-    color: Colors.white,
+
+  detailsHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.gray2,
+  },
+  detailsHintText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.saffron,
   },
 });

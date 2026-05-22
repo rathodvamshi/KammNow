@@ -18,13 +18,14 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../../src/theme';
-import { Avatar } from '../../src/components/atoms/Avatar';
 import { MOCK_JOBS } from '../../src/services/mockData';
 import {
-  formatPay,
-  formatDistance,
   formatRelativeTime,
+  getCategoryIcon,
 } from '../../src/utils/helpers';
+import { buildJobDetailModel } from '../../src/utils/jobDetailDisplay';
+import { getCategoryLabel } from '../../src/utils/jobCardDisplay';
+import { JobDetailContent } from '../../src/components/organisms/JobDetailContent';
 
 const { width } = Dimensions.get('window');
 
@@ -87,7 +88,8 @@ export default function JobDetailScreen() {
 
   // Find job from mock data
   const job = MOCK_JOBS.find((j) => j.id === id) ?? MOCK_JOBS[0];
-  const slotsLeft = job.quantity_total - job.quantity_hired;
+  const detail = buildJobDetailModel(job);
+  const slotsLeft = detail.card.slotsRemaining;
 
   const handleApply = async () => {
     if (!description.trim()) return;
@@ -108,20 +110,14 @@ export default function JobDetailScreen() {
     ));
   };
 
-  const getWorkTiming = (hours: number) => {
-    const startHour = 9; // assume 9 AM start
-    const endHour = startHour + hours;
-    const format = (h: number) => {
-      if (h === 12) return `12:00 PM`;
-      return h > 12 ? `${h - 12}:00 PM` : `${h}:00 AM`;
-    };
-    return `${format(startHour)} - ${format(endHour)}`;
-  };
-
   const openDirections = () => {
     if (job.location_name) {
       Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.location_name)}`);
     }
+  };
+
+  const handleCall = () => {
+    if (job.contact_phone) Linking.openURL(`tel:${job.contact_phone}`);
   };
 
   return (
@@ -199,17 +195,18 @@ export default function JobDetailScreen() {
           ]}
         >
           <View style={styles.heroTags}>
+            <View style={[styles.tag, styles.typeTag]}>
+              <Text style={styles.typeTagEmoji}>{getCategoryIcon(job.category)}</Text>
+              <Text style={styles.typeTagText}>{getCategoryLabel(job.category)}</Text>
+            </View>
             {job.is_urgent && (
               <View style={[styles.tag, styles.urgentTag]}>
                 <Ionicons name="flash" size={12} color="#FF8A8A" />
-                <Text style={styles.urgentTagText}>Urgent Need</Text>
+                <Text style={styles.urgentTagText}>Urgent</Text>
               </View>
             )}
             <View style={[styles.tag, styles.typeTag]}>
-              <Ionicons name="calendar-outline" size={12} color="rgba(255,255,255,0.9)" />
-              <Text style={styles.typeTagText}>
-                {job.pay_type === 'day' ? 'Daily Work' : job.pay_type === 'hour' ? 'Hourly' : 'Monthly'}
-              </Text>
+              <Text style={styles.typeTagText}>{detail.postedAgo}</Text>
             </View>
           </View>
 
@@ -218,16 +215,19 @@ export default function JobDetailScreen() {
           <View style={styles.heroMetaRow}>
             <View style={styles.heroMetaItem}>
               <Ionicons name="location-outline" size={16} color="rgba(255,255,255,0.7)" />
-              <Text style={styles.heroMetaText}>{job.location_name}</Text>
+              <Text style={styles.heroMetaText} numberOfLines={2}>
+                {detail.distanceText ? `${detail.distanceText} · ` : ''}{job.location_name}
+              </Text>
             </View>
           </View>
 
           <View style={styles.payCard}>
-            <View>
-              <Text style={styles.payLabel}>Salary</Text>
-              <Text style={styles.payAmount}>
-                {formatPay(job.pay_amount, job.pay_type)}
-              </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.payLabel}>Pay</Text>
+              <Text style={styles.payAmount}>{detail.payLine}</Text>
+              {detail.paySub ? (
+                <Text style={styles.paySubHero} numberOfLines={2}>{detail.paySub}</Text>
+              ) : null}
             </View>
             <View style={styles.payIconWrapper}>
               <Ionicons name="wallet-outline" size={24} color={Colors.saffron} />
@@ -246,225 +246,11 @@ export default function JobDetailScreen() {
           ]}
         >
 
-          {/* Work Schedule Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="calendar-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Work Schedule</Text>
-            </View>
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="today-outline" size={18} color={Colors.saffron} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Start Date</Text>
-                  <Text style={styles.detailValue}>{job.work_start_date || 'ASAP'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="calendar-clear-outline" size={18} color={Colors.saffron} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>End Date</Text>
-                  <Text style={styles.detailValue}>{job.work_end_date || 'Ongoing'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="time-outline" size={18} color={Colors.saffron} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Timings</Text>
-                  <Text style={styles.detailValue}>{job.work_start_time} - {job.work_end_time}</Text>
-                </View>
-              </View>
-              <View style={[styles.detailBox, { backgroundColor: Colors.saffronLight }]}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="hourglass-outline" size={18} color={Colors.saffronDark} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={[styles.detailLabel, { color: Colors.saffronDark }]}>Duration</Text>
-                  <Text style={[styles.detailValue, { color: Colors.saffronDark }]}>{job.duration_text || 'See Description'}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Pay & Benefits Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="wallet-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Pay & Benefits</Text>
-            </View>
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="cash-outline" size={18} color={Colors.green} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Payout</Text>
-                  <Text style={styles.detailValue}>{job.payment_schedule ? `Paid ${job.payment_schedule}` : 'After Work'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="restaurant-outline" size={18} color={job.food_included ? Colors.green : Colors.gray4} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Food</Text>
-                  <Text style={styles.detailValue}>{job.food_included ? 'Provided' : 'Not Included'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="home-outline" size={18} color={job.stay_included ? Colors.green : Colors.gray4} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Stay</Text>
-                  <Text style={styles.detailValue}>{job.stay_included ? 'Provided' : 'Not Included'}</Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="bus-outline" size={18} color={job.travel_allowance ? Colors.green : Colors.gray4} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Travel Allowance</Text>
-                  <Text style={styles.detailValue}>{job.travel_allowance ? 'Yes' : 'No'}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Requirements Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="checkmark-circle-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Requirements</Text>
-            </View>
-            <View style={styles.detailsGrid}>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="star-outline" size={18} color={Colors.blue} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Skill Level</Text>
-                  <Text style={styles.detailValue}>
-                    {job.skill_level === 'beginner' ? 'Beginner OK' : job.skill_level === 'skilled' ? 'Skilled Only' : job.skill_level === 'heavy' ? 'Heavy Lifting' : 'Any'}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.detailBox}>
-                <View style={styles.detailIconBox}>
-                  <Ionicons name="chatbubble-ellipses-outline" size={18} color={Colors.blue} />
-                </View>
-                <View style={styles.detailTexts}>
-                  <Text style={styles.detailLabel}>Language</Text>
-                  <Text style={styles.detailValue}>{job.language_pref || 'Any'}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Slots Progress Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="people-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Workers Needed</Text>
-            </View>
-            <View style={styles.progressSection}>
-              <View style={styles.progressHeader}>
-                <Text style={styles.progressText}>
-                  <Text style={{ fontFamily: FontFamily.bodySemiBold, color: Colors.ink }}>{job.quantity_hired}</Text> of {job.quantity_total} filled
-                </Text>
-                <Text style={styles.slotsLeftText}>
-                  {slotsLeft <= 0 ? 'All slots full' : `${slotsLeft} left`}
-                </Text>
-              </View>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${Math.min((job.quantity_hired / job.quantity_total) * 100, 100)}%`, backgroundColor: slotsLeft <= 0 ? Colors.gray4 : Colors.green }]} />
-              </View>
-            </View>
-          </View>
-
-          {/* Description Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="document-text-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>About the Work</Text>
-            </View>
-            <Text style={styles.descText}>{job.description}</Text>
-          </View>
-
-          {/* Location Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="map-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Location</Text>
-            </View>
-            <TouchableOpacity style={styles.locationContainer} onPress={openDirections}>
-              <View style={styles.locationIconBox}>
-                <Ionicons name="location" size={24} color={Colors.red} />
-              </View>
-              <View style={styles.locationInfo}>
-                <Text style={styles.locationName}>{job.location_name}</Text>
-                <Text style={styles.locationSub}>Tap for exact map location</Text>
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={openDirections}>
-              <Ionicons name="navigate" size={18} color={Colors.navy} />
-              <Text style={styles.secondaryBtnText}>Get Directions</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Employer Card */}
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Ionicons name="business-outline" size={20} color={Colors.ink} />
-              <Text style={styles.cardTitle}>Posted By</Text>
-            </View>
-            <View style={styles.employerHeader}>
-              <Avatar name={job.poster_name} size="lg" />
-              <View style={styles.employerInfo}>
-                <View style={styles.employerNameRow}>
-                  <Text style={styles.employerName}>{job.poster_name}</Text>
-                  <Ionicons name="checkmark-circle" size={16} color={Colors.green} />
-                </View>
-                <Text style={styles.employerSub}>Verified Employer</Text>
-                <View style={styles.ratingRow}>
-                  {renderStars(job.poster_rating ?? 0)}
-                  <Text style={styles.ratingText}>
-                    {job.poster_rating?.toFixed(1)} <Text style={styles.ratingCount}>({MOCK_REVIEWS.length} reviews)</Text>
-                  </Text>
-                </View>
-              </View>
-            </View>
-            <View style={styles.statsRow}>
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>45</Text>
-                <Text style={styles.statLbl}>Done</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>12</Text>
-                <Text style={styles.statLbl}>Posted</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>{job.poster_rating?.toFixed(1)}★</Text>
-                <Text style={styles.statLbl}>Rating</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statBox}>
-                <Text style={styles.statVal}>98%</Text>
-                <Text style={styles.statLbl}>On Time</Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Reviews Card */}
+          <JobDetailContent
+            job={job}
+            onDirections={openDirections}
+            onCall={detail.showPhone ? handleCall : undefined}
+            renderReviews={
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Ionicons name="chatbubbles-outline" size={20} color={Colors.ink} />
@@ -500,12 +286,14 @@ export default function JobDetailScreen() {
               </TouchableOpacity>
             )}
           </View>
-
-          {/* Report */}
+            }
+            renderReport={
           <TouchableOpacity style={styles.reportBtn}>
             <Ionicons name="flag-outline" size={16} color={Colors.gray4} />
             <Text style={styles.reportBtnText}>Report this posting</Text>
           </TouchableOpacity>
+            }
+          />
           </Animated.View>
       </Animated.ScrollView>
 
@@ -670,10 +458,10 @@ const styles = StyleSheet.create({
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 20,
-    gap: 4,
   },
   urgentTag: {
     backgroundColor: 'rgba(255, 59, 48, 0.2)',
@@ -690,6 +478,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
+  typeTagEmoji: { fontSize: 12 },
   typeTagText: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: FontSize.sm,
@@ -735,6 +524,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     marginBottom: 2,
+  },
+  paySubHero: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.75)',
+    marginTop: 6,
+    lineHeight: 16,
   },
   payAmount: {
     fontFamily: FontFamily.headingBold,

@@ -29,10 +29,17 @@ export interface CategorySectionProps {
   isCompact?: boolean;
   scrollY?: Animated.Value;
   stickyHeaderY?: number;
+  /** Pinned overlay mode — static layout, no horizontal auto-scroll on select */
+  freezeLayout?: boolean;
 }
 
-const ITEM_WIDTH = 62;
-const ITEM_GAP = 10;
+const ITEM_WIDTH = 64;
+const ITEM_GAP = 8;
+const CIRCLE_SIZE = 42;
+const ICON_SLOT_SIZE = 50;
+const ACTIVE_SCALE = 1.06;
+/** Reserved height — must stay constant so sticky header never jumps on category change */
+const CATEGORY_SECTION_HEIGHT = 74;
 
 const getBadgeBg = (badge: string) => {
   switch (badge) {
@@ -55,7 +62,7 @@ const CategoryItemView: React.FC<{
   scrollY?: Animated.Value;
   stickyHeaderY?: number;
 }> = React.memo(({ item, isActive, onPress, isCompact, scrollY, stickyHeaderY }) => {
-  const scaleAnim    = useRef(new Animated.Value(isActive ? 1.08 : 1)).current;
+  const scaleAnim    = useRef(new Animated.Value(isActive ? ACTIVE_SCALE : 1)).current;
   const indicatorAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const pressAnim    = useRef(new Animated.Value(1)).current;
   const pulseAnim    = useRef(new Animated.Value(1)).current;
@@ -65,7 +72,7 @@ const CategoryItemView: React.FC<{
     // 1. Core scale and indicator animation
     Animated.parallel([
       Animated.spring(scaleAnim, {
-        toValue: isActive ? 1.08 : 1,
+        toValue: isActive ? ACTIVE_SCALE : 1,
         friction: 8,
         tension: 50,
         useNativeDriver: true,
@@ -84,18 +91,11 @@ const CategoryItemView: React.FC<{
     }
 
     if (isActive) {
-      // Entrance bounce animation
       Animated.sequence([
         Animated.spring(pulseAnim, {
-          toValue: 0.85,
-          friction: 6,
-          tension: 85,
-          useNativeDriver: true,
-        }),
-        Animated.spring(pulseAnim, {
-          toValue: 1.15,
-          friction: 4,
-          tension: 65,
+          toValue: 0.94,
+          friction: 7,
+          tension: 80,
           useNativeDriver: true,
         }),
         Animated.spring(pulseAnim, {
@@ -104,26 +104,7 @@ const CategoryItemView: React.FC<{
           tension: 55,
           useNativeDriver: true,
         }),
-      ]).start(() => {
-        // Continuous breathing loop (gentle scaling)
-        if (isActive) {
-          breatheLoop.current = Animated.loop(
-            Animated.sequence([
-              Animated.timing(pulseAnim, {
-                toValue: 1.06,
-                duration: 1200,
-                useNativeDriver: true,
-              }),
-              Animated.timing(pulseAnim, {
-                toValue: 1.0,
-                duration: 1200,
-                useNativeDriver: true,
-              }),
-            ])
-          );
-          breatheLoop.current.start();
-        }
-      });
+      ]).start();
     } else {
       // Animate back to 1.0
       Animated.spring(pulseAnim, {
@@ -154,16 +135,17 @@ const CategoryItemView: React.FC<{
   // 1. Smoothly shrink the container width
   const animatedItemWidth = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [62, 62, 48],
+    outputRange: [ITEM_WIDTH, ITEM_WIDTH, 46],
     extrapolate: 'clamp',
-  }) : (isCompact ? 48 : 62);
+  }) : (isCompact ? 46 : ITEM_WIDTH);
 
   // 2. Smoothly scale down the circle (and icon inside it)
+  const compactCircleScale = 36 / CIRCLE_SIZE;
   const animatedCircleScale = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [1, 1, 32 / 46],
+    outputRange: [1, 1, compactCircleScale],
     extrapolate: 'clamp',
-  }) : (isCompact ? 32 / 46 : 1);
+  }) : (isCompact ? compactCircleScale : 1);
 
   // 3. Fade out the badge before stuck
   const badgeFadeEnd = stickyHeaderY ? Math.max(0, stickyHeaderY - 40) : 210;
@@ -188,15 +170,15 @@ const CategoryItemView: React.FC<{
 
   const animatedLabelHeight = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [24, 24, 10],
+    outputRange: [20, 20, 10],
     extrapolate: 'clamp',
-  }) : (isCompact ? 10 : 24);
+  }) : (isCompact ? 10 : 20);
 
   const animatedLabelMarginTop = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [5, 5, 2],
+    outputRange: [4, 4, 2],
     extrapolate: 'clamp',
-  }) : (isCompact ? 2 : 5);
+  }) : (isCompact ? 2 : 4);
 
   // 5. Smooth active indicator width
   const animatedIndicatorWidth = scrollY ? scrollY.interpolate({
@@ -230,25 +212,26 @@ const CategoryItemView: React.FC<{
           { width: animatedItemWidth }
         ]}
       >
-        <Animated.View
-          style={[
-            styles.circle,
-            {
-              backgroundColor: item.bgColor,
-              transform: [{ scale: combinedScale }],
-            },
-            isActive && styles.circleActive,
-          ]}
-        >
-          {/* Always render icon at size 20, visual scale handles size transition */}
-          <Ionicons name={item.iconName} size={20} color={item.iconColor} />
+        <View style={styles.iconSlot}>
+          <Animated.View
+            style={[
+              styles.circle,
+              {
+                backgroundColor: item.bgColor,
+                transform: [{ scale: combinedScale }],
+              },
+              isActive && styles.circleActive,
+            ]}
+          >
+            <Ionicons name={item.iconName} size={19} color={item.iconColor} />
 
-          {item.badge && (
-            <Animated.View style={[styles.badge, { backgroundColor: getBadgeBg(item.badge), opacity: animatedBadgeOpacity }]}>
-              <Text style={styles.badgeText}>{item.badge}</Text>
-            </Animated.View>
-          )}
-        </Animated.View>
+            {item.badge && (
+              <Animated.View style={[styles.badge, { backgroundColor: getBadgeBg(item.badge), opacity: animatedBadgeOpacity }]}>
+                <Text style={styles.badgeText}>{item.badge}</Text>
+              </Animated.View>
+            )}
+          </Animated.View>
+        </View>
 
         <Animated.Text
           style={[
@@ -289,6 +272,7 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
   isCompact = false,
   scrollY,
   stickyHeaderY,
+  freezeLayout = false,
 }) => {
   const flatListRef   = useRef<FlatList>(null);
   const isMounted     = useRef(false);   // skip scroll on first render
@@ -296,6 +280,7 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
 
   // Scroll to selected item — but ONLY after user interaction, never on mount
   useEffect(() => {
+    if (freezeLayout) return;
     if (!isMounted.current) {
       isMounted.current = true;
       return; // skip initial render scroll
@@ -309,13 +294,13 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
     try {
       flatListRef.current?.scrollToIndex({
         index,
-        animated: true,
+        animated: false,
         viewPosition: 0.4,
       });
     } catch {
       // list not yet measured — ignore
     }
-  }, [selectedCategoryId, categories]);
+  }, [selectedCategoryId, categories, freezeLayout]);
 
   // Web: redirect vertical wheel scroll to horizontal
   useEffect(() => {
@@ -337,23 +322,26 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
   const startShrink = stickyHeaderY ? Math.max(0, stickyHeaderY - 80) : 170;
   const endShrink = stickyHeaderY ? Math.max(0, stickyHeaderY) : 250;
 
-  const containerPaddingTop = scrollY ? scrollY.interpolate({
-    inputRange: [0, startShrink, endShrink],
-    outputRange: [6, 6, 2],
-    extrapolate: 'clamp',
-  }) : (isCompact ? 2 : 6);
+  const useScrollDrivenLayout = scrollY && !freezeLayout;
 
-  const listPaddingVertical = scrollY ? scrollY.interpolate({
+  const containerPaddingTop = useScrollDrivenLayout ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [10, 10, 4],
+    outputRange: [4, 4, 0],
     extrapolate: 'clamp',
-  }) : (isCompact ? 4 : 10);
+  }) : (isCompact ? 0 : 4);
+
+  const listPaddingVertical = useScrollDrivenLayout ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [8, 8, 2],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 2 : 8);
 
   return (
     <Animated.View
       style={[
         styles.container,
-        { paddingTop: containerPaddingTop }
+        (isCompact || freezeLayout) && styles.containerFixedHeight,
+        { paddingTop: containerPaddingTop, overflow: 'visible' },
       ]}
     >
       <AnimatedFlatList
@@ -376,8 +364,8 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
             item={item}
             isActive={selectedCategoryId === item.id}
             onPress={onSelectCategory}
-            isCompact={isCompact}
-            scrollY={scrollY}
+            isCompact={isCompact || freezeLayout}
+            scrollY={freezeLayout ? undefined : scrollY}
             stickyHeaderY={stickyHeaderY}
           />
         )}
@@ -390,19 +378,32 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: 'transparent', // inherits parent — zero color mismatch
   },
+  containerFixedHeight: {
+    minHeight: CATEGORY_SECTION_HEIGHT,
+    maxHeight: CATEGORY_SECTION_HEIGHT,
+  },
   listContent: {
     paddingHorizontal: 14,
     gap: ITEM_GAP,
+    alignItems: 'flex-start',
   },
 
   // Item
   itemContainer: {
     alignItems: 'center',
+    overflow: 'visible',
+  },
+  iconSlot: {
+    width: ICON_SLOT_SIZE,
+    height: ICON_SLOT_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
   },
   circle: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: CIRCLE_SIZE,
+    height: CIRCLE_SIZE,
+    borderRadius: CIRCLE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -461,7 +462,7 @@ const styles = StyleSheet.create({
   // Active indicator dot/line
   indicatorWrap: {
     height: 2,
-    marginTop: 3,
+    marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
