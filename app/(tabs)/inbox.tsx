@@ -134,7 +134,7 @@ export default function InboxScreen() {
             </Text>
           </View>
         }
-        contentContainerStyle={{ paddingBottom: 20 }}
+        contentContainerStyle={{ paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
       />
 

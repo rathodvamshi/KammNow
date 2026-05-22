@@ -12,12 +12,14 @@ interface UIState {
   inboxBadgeCount: number;
   toasts: Toast[];
   isOffline: boolean;
+  currentRole: 'seeker' | 'provider';
   setLanguage: (lang: 'en' | 'hi' | 'te') => void;
   setInboxBadgeCount: (count: number) => void;
   incrementBadge: () => void;
   showToast: (message: string, type?: Toast['type']) => void;
   removeToast: (id: string) => void;
   setOffline: (offline: boolean) => void;
+  setRole: (role: 'seeker' | 'provider') => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -25,6 +27,7 @@ export const useUIStore = create<UIState>((set) => ({
   inboxBadgeCount: 0,
   toasts: [],
   isOffline: false,
+  currentRole: 'seeker',
 
   setLanguage: (language) => {
     i18n.changeLanguage(language);
@@ -54,4 +57,6 @@ export const useUIStore = create<UIState>((set) => ({
     })),
 
   setOffline: (isOffline) => set({ isOffline }),
+
+  setRole: (currentRole) => set({ currentRole }),
 }));

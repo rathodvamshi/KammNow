@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,192 +10,404 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
+  Animated,
+  Modal,
 } from 'react-native';
 import { router } from 'expo-router';
-import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../../src/theme';
+import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow, Motion } from '../../src/theme';
 import { TopBar } from '../../src/components/organisms/TopBar';
 import { QuantityEditor } from '../../src/components/molecules/QuantityEditor';
-import { Toggle } from '../../src/components/atoms/Toggle';
 import { JobPostMap } from '../../src/components/organisms/JobPostMap';
-import type { PayType, JobCategory, WorkType, SkillLevel } from '../../src/types';
+import { Toggle } from '../../src/components/atoms/Toggle';
+import type { JobCategory } from '../../src/types';
+
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const CATEGORIES: { key: JobCategory; label: string; icon: string }[] = [
-  { key: 'delivery', label: 'Delivery', icon: '🚗' },
-  { key: 'events', label: 'Events', icon: '🎪' },
-  { key: 'shop', label: 'Retail', icon: '🏪' },
-  { key: 'construction', label: 'Labour', icon: '🏗️' },
-  { key: 'restaurant', label: 'Restaurant', icon: '🍽️' },
-  { key: 'others', label: 'Others', icon: '🌿' },
+  { key: 'delivery', label: 'Delivery', icon: '🚚' },
+  { key: 'driver', label: 'Driver', icon: '🚗' },
+  { key: 'warehouse', label: 'Warehouse', icon: '📦' },
+  { key: 'construction', label: 'Construction', icon: '🏗️' },
+  { key: 'cleaning', label: 'Cleaning', icon: '🧹' },
+  { key: 'cooking', label: 'Cooking', icon: '🍳' },
+  { key: 'security', label: 'Security', icon: '🛡️' },
+  { key: 'shop_helper', label: 'Shop Helper', icon: '🏪' },
+  { key: 'office_assistant', label: 'Office Asst.', icon: '💼' },
+  { key: 'electrician', label: 'Electrician', icon: '⚡' },
+  { key: 'plumber', label: 'Plumber', icon: '🚰' },
+  { key: 'mechanic', label: 'Mechanic', icon: '🔧' },
+  { key: 'painter', label: 'Painter', icon: '🎨' },
+  { key: 'carpenter', label: 'Carpenter', icon: '🪚' },
+  { key: 'event_staff', label: 'Event Staff', icon: '🎪' },
+  { key: 'hotel_staff', label: 'Hotel Staff', icon: '🛏️' },
+  { key: 'restaurant_staff', label: 'Restaurant', icon: '🍽️' },
+  { key: 'factory_worker', label: 'Factory', icon: '🏭' },
+  { key: 'household_work', label: 'Household', icon: '🏠' },
+  { key: 'gardening', label: 'Gardening', icon: '🌿' },
+  { key: 'caregiver', label: 'Caregiver', icon: '❤️' },
+  { key: 'technician', label: 'Technician', icon: '🧰' },
+  { key: 'sales_promoter', label: 'Sales', icon: '📣' },
+  { key: 'loading_unloading', label: 'Loading', icon: '🛒' },
+  { key: 'other', label: 'Other', icon: '➕' },
 ];
 
-const PAY_TYPES: { key: PayType; label: string }[] = [
-  { key: 'hour', label: 'Hourly' },
-  { key: 'day', label: 'Daily' },
-  { key: 'month', label: 'Monthly' },
+const COMMON_SKILLS = [
+  'Bike Riding', 'Driving', 'Packing', 'Cleaning',
+  'Cooking', 'Communication', 'Heavy Lifting', 'Customer Handling',
 ];
 
-const HOURLY_SCHEDULES = [
-  { key: 'daily', label: 'Daily Payment' },
-  { key: 'weekly', label: 'Weekly Payment' },
-  { key: 'monthly', label: 'Monthly Settlement' },
-  { key: 'completion', label: 'After Completion' },
-] as const;
-
-const DAILY_SCHEDULES = [
-  { key: 'daily', label: 'Daily Payment' },
-  { key: 'every_2_days', label: 'Every 2 Days' },
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'completion', label: 'After Completion' },
-] as const;
-
-const MONTHLY_SALARY_DATES = [
-  { key: 'month_end', label: 'Month End' },
-  { key: '1st', label: '1st of Every Month' },
-  { key: '5th', label: '5th of Every Month' },
-  { key: 'weekly_advance', label: 'Weekly Advance' },
-] as const;
-
-const WORK_TYPES: { key: WorkType; label: string }[] = [
-  { key: 'full_time', label: 'Full Time' },
-  { key: 'part_time', label: 'Part Time' },
-  { key: 'one_time', label: 'One Time' },
-  { key: 'shift', label: 'Shift Based' },
+const STEPS = [
+  { id: 1, label: 'Details', icon: 'document-text-outline' },
+  { id: 2, label: 'Work', icon: 'time-outline' },
+  { id: 3, label: 'Location', icon: 'location-outline' },
+  { id: 4, label: 'Workers', icon: 'people-outline' },
+  { id: 5, label: 'Review', icon: 'checkmark-circle-outline' },
 ];
 
-const SKILL_LEVELS: { key: SkillLevel; label: string }[] = [
-  { key: 'beginner', label: 'Beginner Friendly' },
-  { key: 'skilled', label: 'Skilled Required' },
-  { key: 'heavy', label: 'Heavy Work' },
-  { key: 'any', label: 'Any Experience' },
-];
+const PLACEHOLDER_COLOR = Colors.gray3;
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const parseTimeToMinutes = (timeStr: string) => {
+  if (!timeStr) return 0;
+  if (timeStr.includes(':') && !timeStr.toLowerCase().includes('m')) {
+    const [h, m] = timeStr.split(':');
+    return parseInt(h) * 60 + parseInt(m);
+  }
+  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (match) {
+    let h = parseInt(match[1]);
+    const m = parseInt(match[2]);
+    const isPM = match[3].toUpperCase() === 'PM';
+    if (isPM && h !== 12) h += 12;
+    if (!isPM && h === 12) h = 0;
+    return h * 60 + m;
+  }
+  return 0;
+};
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const FieldLabel = ({ children }: { children: string }) => (
+  <Text style={styles.fieldLabel}>{children}</Text>
+);
+
+// Inline error message shown below a field
+const ErrorMsg = ({ msg }: { msg?: string }) =>
+  msg ? (
+    <View style={styles.errorRow}>
+      <Ionicons name="alert-circle" size={13} color={Colors.red} />
+      <Text style={styles.errorText}>{msg}</Text>
+    </View>
+  ) : null;
+
+const StyledInput = ({
+  value, onChangeText, placeholder, keyboardType, multiline, maxLength, editable, hasError,
+}: any) => (
+  <TextInput
+    style={[
+      styles.input,
+      multiline && styles.textarea,
+      !editable && styles.inputDisabled,
+      hasError && styles.inputError,
+    ]}
+    value={value}
+    onChangeText={onChangeText}
+    placeholder={placeholder}
+    placeholderTextColor={hasError ? Colors.red + '88' : PLACEHOLDER_COLOR}
+    keyboardType={keyboardType}
+    multiline={multiline}
+    maxLength={maxLength}
+    editable={editable !== false}
+    textAlignVertical={multiline ? 'top' : 'center'}
+  />
+);
+
+const ChipSelector = ({
+  options, value, onChange, multiSelect = false,
+}: {
+  options: { key: string; label: string }[];
+  value: string | string[];
+  onChange: (v: any) => void;
+  multiSelect?: boolean;
+}) => (
+  <View style={styles.chipGrid}>
+    {options.map(opt => {
+      const isActive = multiSelect
+        ? (value as string[]).includes(opt.key)
+        : value === opt.key;
+      return (
+        <TouchableOpacity
+          key={opt.key}
+          style={[styles.chip, isActive && styles.chipActive]}
+          onPress={() => {
+            if (multiSelect) {
+              const arr = value as string[];
+              onChange(isActive ? arr.filter(v => v !== opt.key) : [...arr, opt.key]);
+            } else {
+              onChange(opt.key);
+            }
+          }}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{opt.label}</Text>
+        </TouchableOpacity>
+      );
+    })}
+  </View>
+);
+
+// Web date/time input fallback
+const WebInput = ({ mode, value, onChange }: { mode: 'date' | 'time'; value: string; onChange: (v: string) => void }) =>
+  Platform.OS === 'web'
+    ? React.createElement('input', {
+        type: mode, value,
+        onChange: (e: any) => onChange(e.target.value),
+        style: {
+          width: '100%', boxSizing: 'border-box',
+          padding: '13px 16px', border: `1.5px solid ${Colors.gray2}`,
+          borderRadius: 12, fontSize: 15,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          backgroundColor: Colors.white, outline: 'none',
+          color: value ? Colors.ink : PLACEHOLDER_COLOR,
+        },
+      })
+    : null;
+
+// Touchable date/time picker button
+const PickerButton = ({
+  label, value, onPress, hasError,
+}: { label: string; value: string; onPress: () => void; hasError?: boolean }) => (
+  <TouchableOpacity
+    style={[styles.pickerBtn, hasError && styles.pickerBtnError]}
+    onPress={onPress}
+    activeOpacity={0.8}
+  >
+    <Text style={value ? styles.pickerBtnText : (hasError ? styles.pickerBtnPlaceholderError : styles.pickerBtnPlaceholder)}>
+      {value || label}
+    </Text>
+    <Ionicons name="chevron-down" size={16} color={hasError ? Colors.red : Colors.gray4} />
+  </TouchableOpacity>
+);
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function PostJobScreen() {
-  const [step, setStep] = useState(1);
+  const [currentStep, setCurrentStep] = useState(1);
   const [isPosting, setIsPosting] = useState(false);
   const [posted, setPosted] = useState(false);
+  const slideAnim = useRef(new Animated.Value(0)).current;
 
-  // Form state
+  // STEP 1: Basic Details
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<JobCategory>('delivery');
-  const [workType, setWorkType] = useState<WorkType>('full_time');
-  const [skillLevel, setSkillLevel] = useState<SkillLevel>('any');
-  
-  const [payAmount, setPayAmount] = useState('600');
-  const [payType, setPayType] = useState<PayType>('day');
-
-  const [hourlyHoursPerDay, setHourlyHoursPerDay] = useState('8');
-  const [hourlyDaysPerWeek, setHourlyDaysPerWeek] = useState('6');
-  const [hourlyDurationDays, setHourlyDurationDays] = useState('15');
-  const [hourlyPaymentSchedule, setHourlyPaymentSchedule] = useState<typeof HOURLY_SCHEDULES[number]['key']>('weekly');
-
-  const [dailyStartDate, setDailyStartDate] = useState('');
-  const [dailyEndDate, setDailyEndDate] = useState('');
-  const [dailyTotalDays, setDailyTotalDays] = useState('5');
-  const [dailyPaymentSchedule, setDailyPaymentSchedule] = useState<typeof DAILY_SCHEDULES[number]['key']>('daily');
-
-  const [monthlyWorkingDays, setMonthlyWorkingDays] = useState('Mon - Sat');
-  const [monthlyWeeklyOff, setMonthlyWeeklyOff] = useState('Sunday');
-  const [monthlySalaryDate, setMonthlySalaryDate] = useState<typeof MONTHLY_SALARY_DATES[number]['key']>('1st');
-  const [monthlyOvertimePolicy, setMonthlyOvertimePolicy] = useState('');
-
-  const [paymentNote, setPaymentNote] = useState('');
-  const [paymentMode, setPaymentMode] = useState('UPI / Bank / Cash');
-  const [advanceAvailable, setAdvanceAvailable] = useState(false);
-  const [overtimeAvailable, setOvertimeAvailable] = useState(false);
-  const [overtimeRate, setOvertimeRate] = useState('');
-  const [bonusAvailable, setBonusAvailable] = useState(false);
-  const [bonusAmount, setBonusAmount] = useState('');
-  const [incentivesAvailable, setIncentivesAvailable] = useState(false);
-  const [incentivesDetails, setIncentivesDetails] = useState('');
-  const [attendanceBonus, setAttendanceBonus] = useState(false);
-
-  // Map location handling
-  const [locationCoords, setLocationCoords] = useState<{ latitude: number; longitude: number }>({ latitude: 17.3850, longitude: 78.4867 }); // Default Hyderabad
-  
-  const [workStartTime, setWorkStartTime] = useState('9:00 AM');
-  const [workEndTime, setWorkEndTime] = useState('6:00 PM');
-  
-  const [quantity, setQuantity] = useState(1);
-
-  const amountNum = parseInt(payAmount) || 0;
-  const hoursPerDayNum = parseFloat(hourlyHoursPerDay) || 0;
-  const daysPerWeekNum = parseFloat(hourlyDaysPerWeek) || 0;
-  const hourlyDurationDaysNum = parseInt(hourlyDurationDays) || 0;
-  const dailyTotalDaysNum = parseInt(dailyTotalDays) || 0;
-
-  const hourlyEstimated = amountNum * hoursPerDayNum * hourlyDurationDaysNum;
-  const dailyEstimated = amountNum * dailyTotalDaysNum;
-  const monthlyEstimated = amountNum;
-  const estimatedEarnings =
-    payType === 'hour' ? hourlyEstimated : payType === 'day' ? dailyEstimated : monthlyEstimated;
-  const totalPay = estimatedEarnings * quantity;
-
-  const hourlyDailyEarnings = amountNum * hoursPerDayNum;
-  const hourlyWeeklyEarnings = hourlyDailyEarnings * daysPerWeekNum;
-  const hourlyMonthlyProjection = hourlyWeeklyEarnings ? hourlyWeeklyEarnings * 4 : 0;
-  const dailyMonthlyProjection = amountNum ? amountNum * 26 : 0;
-  const monthlyDailyAverage = amountNum ? Math.round(amountNum / 26) : 0;
-
-  const scheduleSummary =
-    payType === 'hour'
-      ? `${hourlyHoursPerDay || 0} hrs/day • ${hourlyDurationDays || 0} days`
-      : payType === 'day'
-        ? `${dailyTotalDays || 0} days`
-        : `${monthlyWorkingDays} • ${monthlyWeeklyOff} off`;
-
-  const timingSummary = `${workStartTime} - ${workEndTime}`;
-  const paymentFrequencyLabel =
-    payType === 'hour'
-      ? HOURLY_SCHEDULES.find((ps) => ps.key === hourlyPaymentSchedule)?.label
-      : payType === 'day'
-        ? DAILY_SCHEDULES.find((ps) => ps.key === dailyPaymentSchedule)?.label
-        : MONTHLY_SALARY_DATES.find((ps) => ps.key === monthlySalaryDate)?.label;
-
   const [description, setDescription] = useState('');
-  const [languagePref, setLanguagePref] = useState('');
-  const [locationName, setLocationName] = useState('Ameerpet, Hyderabad');
-  
-  // Toggles
-  const [foodIncluded, setFoodIncluded] = useState(false);
-  const [stayIncluded, setStayIncluded] = useState(false);
-  const [travelAllowance, setTravelAllowance] = useState(false);
+
+  // STEP 2: Work Type
+  const [workType, setWorkType] = useState<'hour' | 'day' | 'month'>('day');
+  const [hourlyRate, setHourlyRate] = useState('');
+  const [totalHours, setTotalHours] = useState('');
+  const [shiftStart, setShiftStart] = useState('');
+  const [shiftEnd, setShiftEnd] = useState('');
+  const [sameDayPayment, setSameDayPayment] = useState(false);
   const [isUrgent, setIsUrgent] = useState(false);
-  const [showPhone, setShowPhone] = useState(false);
-  const [notifyOnApply, setNotifyOnApply] = useState(true);
+  const [dailyWage, setDailyWage] = useState('');
+  const [numberOfDays, setNumberOfDays] = useState('');
+  const [dailyShiftStart, setDailyShiftStart] = useState('');
+  const [dailyShiftEnd, setDailyShiftEnd] = useState('');
+  const [dailyStartDate, setDailyStartDate] = useState('');
+  const [foodIncluded, setFoodIncluded] = useState(false);
+  const [accommodationIncluded, setAccommodationIncluded] = useState(false);
+  const [overtimeAvailable, setOvertimeAvailable] = useState(false);
+  const [monthlySalary, setMonthlySalary] = useState('');
+  const [joiningDate, setJoiningDate] = useState('');
+  const [workingDaysPerWeek, setWorkingDaysPerWeek] = useState('6 Days');
+  const [monthlyShiftStart, setMonthlyShiftStart] = useState('');
+  const [monthlyShiftEnd, setMonthlyShiftEnd] = useState('');
+  const [experienceRequired, setExperienceRequired] = useState('No Experience');
+  const [salaryNegotiable, setSalaryNegotiable] = useState(false);
+  const [pfEsiIncluded, setPfEsiIncluded] = useState(false);
+
+  // STEP 3: Location
+  const [locationCoords, setLocationCoords] = useState({ latitude: 17.3850, longitude: 78.4867 });
+  const [fullAddress, setFullAddress] = useState('');
+
+  // STEP 4: Workers
+  const [workersNeeded, setWorkersNeeded] = useState(1);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [genderPref, setGenderPref] = useState<'any' | 'male' | 'female'>('any');
+  const [contactMethod, setContactMethod] = useState<'in_app_chat' | 'phone_call' | 'whatsapp'>('in_app_chat');
+
+  // STEP 5: Review
+  const [visibility, setVisibility] = useState<'public' | 'private'>('public');
+  const [acceptTerms, setAcceptTerms] = useState(false);
+
+  // ── Inline field errors ──────────────────────────────────────────────────
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const clearError = (key: string) => setErrors(prev => {
+    if (!prev[key]) return prev;
+    const next = { ...prev }; delete next[key]; return next;
+  });
+
+  // Picker state
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
+  const [pickerTarget, setPickerTarget] = useState<string>('');
+  const [tempDate, setTempDate] = useState(new Date());
+
+  // Auto-calculate hours
+  useEffect(() => {
+    if (workType === 'hour' && shiftStart && shiftEnd) {
+      const diff = parseTimeToMinutes(shiftEnd) - parseTimeToMinutes(shiftStart);
+      const hours = (diff < 0 ? diff + 1440 : diff) / 60;
+      setTotalHours(hours > 0 ? Number(hours.toFixed(1)).toString() : '');
+    }
+  }, [shiftStart, shiftEnd, workType]);
+
+  const openPicker = (mode: 'date' | 'time', target: string) => {
+    setPickerMode(mode); setPickerTarget(target); setShowPicker(true);
+  };
+
+  const formatTime = (date: Date) => {
+    let hours = date.getHours();
+    const minutes = date.getMinutes();
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12 || 12;
+    return `${hours}:${minutes < 10 ? '0' + minutes : minutes} ${ampm}`;
+  };
+
+  const handleDateSelect = (selectedDate: Date) => {
+    if (pickerMode === 'time') {
+      const t = formatTime(selectedDate);
+      if (pickerTarget === 'hourlyStart') setShiftStart(t);
+      else if (pickerTarget === 'hourlyEnd') setShiftEnd(t);
+      else if (pickerTarget === 'dailyStart') setDailyShiftStart(t);
+      else if (pickerTarget === 'dailyEnd') setDailyShiftEnd(t);
+      else if (pickerTarget === 'monthlyStart') setMonthlyShiftStart(t);
+      else if (pickerTarget === 'monthlyEnd') setMonthlyShiftEnd(t);
+    } else {
+      const d = selectedDate.toLocaleDateString();
+      if (pickerTarget === 'dailyDate') setDailyStartDate(d);
+      else if (pickerTarget === 'monthlyDate') setJoiningDate(d);
+    }
+  };
+
+  const animateToStep = (next: number) => {
+    Animated.sequence([
+      Animated.timing(slideAnim, { toValue: -20, duration: 120, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start();
+    setCurrentStep(next);
+  };
+
+  const validateStep = (): boolean => {
+    const newErrors: Record<string, string> = {};
+
+    if (currentStep === 1) {
+      if (!title.trim()) newErrors.title = 'Job title is required';
+      if (description.length < 20) newErrors.description = description.length === 0
+        ? 'Job description is required'
+        : `Too short — add ${20 - description.length} more characters`;
+    }
+
+    if (currentStep === 2) {
+      if (workType === 'hour') {
+        if (!shiftStart) newErrors.shiftStart = 'Shift start time is required';
+        if (!shiftEnd) newErrors.shiftEnd = 'Shift end time is required';
+        if (!hourlyRate) newErrors.hourlyRate = 'Total pay amount is required';
+      }
+      if (workType === 'day') {
+        if (!dailyWage) newErrors.dailyWage = 'Daily wage is required';
+        if (!numberOfDays) newErrors.numberOfDays = 'Number of days is required';
+        if (!dailyShiftStart) newErrors.dailyShiftStart = 'Shift start time is required';
+        if (!dailyShiftEnd) newErrors.dailyShiftEnd = 'Shift end time is required';
+        if (!dailyStartDate) newErrors.dailyStartDate = 'Start date is required';
+      }
+      if (workType === 'month') {
+        if (!monthlySalary) newErrors.monthlySalary = 'Monthly salary is required';
+        if (!monthlyShiftStart) newErrors.monthlyShiftStart = 'Shift start time is required';
+        if (!monthlyShiftEnd) newErrors.monthlyShiftEnd = 'Shift end time is required';
+        if (!joiningDate) newErrors.joiningDate = 'Joining date is required';
+      }
+    }
+
+    if (currentStep === 3) {
+      if (!fullAddress.trim()) newErrors.fullAddress = 'Full address is required';
+    }
+
+    if (currentStep === 5) {
+      if (!acceptTerms) newErrors.acceptTerms = 'You must accept the terms to post this job';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return false;
+    }
+    setErrors({});
+    return true;
+  };
+
+  const handleNext = () => {
+    if (!validateStep()) return;
+    if (currentStep < 5) animateToStep(currentStep + 1);
+  };
+
+  const handleBack = () => {
+    if (currentStep > 1) animateToStep(currentStep - 1);
+    else router.back();
+  };
 
   const handlePost = async () => {
-    if (!title.trim() || !description.trim()) {
-      Alert.alert('Missing Info', 'Please fill in job title and description.');
-      return;
-    }
+    if (!validateStep()) return;
     setIsPosting(true);
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 1500));
     setIsPosting(false);
     setPosted(true);
   };
 
+  const getEstimatedCost = () => {
+    if (workType === 'hour') return (parseFloat(hourlyRate) || 0) * workersNeeded;
+    if (workType === 'day') return (parseFloat(dailyWage) || 0) * (parseFloat(numberOfDays) || 0) * workersNeeded;
+    return (parseFloat(monthlySalary) || 0) * workersNeeded;
+  };
+
+  // ── Success Screen ───────────────────────────────────────────────────────
   if (posted) {
     return (
       <View style={styles.successScreen}>
         <SafeAreaView style={{ backgroundColor: Colors.navy }} />
         <View style={styles.successContent}>
-          <Text style={styles.successEmoji}>🎉</Text>
-          <Text style={styles.successTitle}>Job Posted Successfully!</Text>
-          <Text style={styles.successSub}>
-            Your job is now live and workers nearby can see it.
-          </Text>
-          <TouchableOpacity
-            style={styles.successBtn}
-            onPress={() => router.replace('/(tabs)/my-jobs')}
-          >
-            <Text style={styles.successBtnText}>View My Jobs →</Text>
+          <View style={styles.successIconWrap}>
+            <Text style={{ fontSize: 48 }}>🎉</Text>
+          </View>
+          <Text style={styles.successTitle}>Job is Live!</Text>
+          <Text style={styles.successSub}>Workers are being notified nearby. You'll hear back shortly.</Text>
+
+          <View style={styles.successStats}>
+            <View style={styles.successStat}>
+              <Text style={styles.successStatValue}>~12</Text>
+              <Text style={styles.successStatLabel}>Nearby Workers</Text>
+            </View>
+            <View style={styles.successStatDivider} />
+            <View style={styles.successStat}>
+              <Text style={styles.successStatValue}>&lt;2h</Text>
+              <Text style={styles.successStatLabel}>Avg Response</Text>
+            </View>
+            <View style={styles.successStatDivider} />
+            <View style={styles.successStat}>
+              <Text style={styles.successStatValue}>100%</Text>
+              <Text style={styles.successStatLabel}>Free to Post</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity style={styles.successBtn} onPress={() => router.replace('/(tabs)/my-jobs')}>
+            <Ionicons name="briefcase-outline" size={18} color={Colors.white} />
+            <Text style={styles.successBtnText}>View My Jobs</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.successBtn2}
-            onPress={() => router.replace('/(tabs)')}
-          >
+          <TouchableOpacity style={styles.successBtn2} onPress={() => router.replace('/(tabs)')}>
             <Text style={styles.successBtn2Text}>Back to Home</Text>
           </TouchableOpacity>
         </View>
@@ -203,1075 +415,1191 @@ export default function PostJobScreen() {
     );
   }
 
-  const renderStep1 = () => (
-    <View style={styles.stepContent}>
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>📝 Job Title *</Text>
-        <TextInput
-          style={styles.input}
-          value={title}
-          onChangeText={setTitle}
-          placeholder="e.g. Construction Labour Needed"
-          placeholderTextColor={Colors.gray3}
-        />
-      </View>
+  // ── Step Content ─────────────────────────────────────────────────────────
 
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>🗂️ Category</Text>
-        <View style={styles.categoryGrid}>
-          {CATEGORIES.map((cat) => (
+  const renderStep = () => {
+    switch (currentStep) {
+      case 1:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>What's the job?</Text>
+            <Text style={styles.stepSubtitle}>Clear titles get 3× more applicants</Text>
+
+            <View style={styles.field}>
+              <FieldLabel>Job Title *</FieldLabel>
+              <StyledInput
+                value={title}
+                onChangeText={(v: string) => { setTitle(v); clearError('title'); }}
+                placeholder="e.g. Delivery Boy Needed Urgently"
+                hasError={!!errors.title}
+              />
+              <ErrorMsg msg={errors.title} />
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Category *</FieldLabel>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
+                {CATEGORIES.map(cat => (
+                  <TouchableOpacity
+                    key={cat.key}
+                    style={[styles.categoryCard, category === cat.key && styles.categoryCardActive]}
+                    onPress={() => setCategory(cat.key)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.categoryIcon}>{cat.icon}</Text>
+                    <Text style={[styles.categoryLabel, category === cat.key && styles.categoryLabelActive]}>
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Description *</FieldLabel>
+              <StyledInput
+                value={description}
+                onChangeText={(v: string) => { setDescription(v); clearError('description'); }}
+                placeholder={'Describe the work clearly...\n• What work is needed?\n• When and how long?\n• Any requirements?'}
+                multiline
+                maxLength={500}
+                hasError={!!errors.description}
+              />
+              <View style={styles.charCountRow}>
+                <ErrorMsg msg={errors.description} />
+                <Text style={[styles.charCount, description.length > 450 && { color: Colors.red }]}>
+                  {description.length}/500
+                </Text>
+              </View>
+            </View>
+          </View>
+        );
+
+      case 2:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>Pay & Schedule</Text>
+            <Text style={styles.stepSubtitle}>Fair pay attracts better workers faster</Text>
+
+            <View style={styles.field}>
+              <FieldLabel>Work Type</FieldLabel>
+              <View style={styles.segmentControl}>
+                {[
+                  { key: 'hour', label: '⏱ Hourly' },
+                  { key: 'day', label: '📅 Daily' },
+                  { key: 'month', label: '📆 Monthly' },
+                ].map(wt => (
+                  <TouchableOpacity
+                    key={wt.key}
+                    style={[styles.segment, workType === wt.key && styles.segmentActive]}
+                    onPress={() => setWorkType(wt.key as any)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.segmentText, workType === wt.key && styles.segmentTextActive]}>
+                      {wt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            {workType === 'hour' && (
+              <>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift Start *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={shiftStart} onChange={(v) => { setShiftStart(v); clearError('shiftStart'); }} />
+                      : <PickerButton label="Select Time" value={shiftStart} hasError={!!errors.shiftStart} onPress={() => { openPicker('time', 'hourlyStart'); clearError('shiftStart'); }} />}
+                    <ErrorMsg msg={errors.shiftStart} />
+                  </View>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift End *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={shiftEnd} onChange={(v) => { setShiftEnd(v); clearError('shiftEnd'); }} />
+                      : <PickerButton label="Select Time" value={shiftEnd} hasError={!!errors.shiftEnd} onPress={() => { openPicker('time', 'hourlyEnd'); clearError('shiftEnd'); }} />}
+                    <ErrorMsg msg={errors.shiftEnd} />
+                  </View>
+                </View>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Total Hours</FieldLabel>
+                    <StyledInput value={totalHours ? `${totalHours} hrs` : ''} placeholder="Auto-calculated" editable={false} />
+                  </View>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Total Pay (₹) *</FieldLabel>
+                    <StyledInput
+                      value={hourlyRate}
+                      onChangeText={(v: string) => { setHourlyRate(v); clearError('hourlyRate'); }}
+                      placeholder="e.g. 500"
+                      keyboardType="number-pad"
+                      hasError={!!errors.hourlyRate}
+                    />
+                    <ErrorMsg msg={errors.hourlyRate} />
+                  </View>
+                </View>
+                <View style={styles.toggleCard}>
+                  <View style={styles.toggleCardRow}>
+                    <Text style={styles.toggleLabel}>Same Day Payment</Text>
+                    <Toggle value={sameDayPayment} onToggle={setSameDayPayment} />
+                  </View>
+                  <View style={[styles.toggleCardRow, { borderBottomWidth: 0 }]}>
+                    <Text style={styles.toggleLabel}>Mark as Urgent</Text>
+                    <Toggle value={isUrgent} onToggle={setIsUrgent} />
+                  </View>
+                </View>
+              </>
+            )}
+
+            {workType === 'day' && (
+              <>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Daily Wage (₹) *</FieldLabel>
+                    <StyledInput
+                      value={dailyWage}
+                      onChangeText={(v: string) => { setDailyWage(v); clearError('dailyWage'); }}
+                      placeholder="₹800/day"
+                      keyboardType="number-pad"
+                      hasError={!!errors.dailyWage}
+                    />
+                    <ErrorMsg msg={errors.dailyWage} />
+                  </View>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Number of Days *</FieldLabel>
+                    <StyledInput
+                      value={numberOfDays}
+                      onChangeText={(v: string) => { setNumberOfDays(v); clearError('numberOfDays'); }}
+                      placeholder="e.g. 5"
+                      keyboardType="number-pad"
+                      hasError={!!errors.numberOfDays}
+                    />
+                    <ErrorMsg msg={errors.numberOfDays} />
+                  </View>
+                </View>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift Start *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={dailyShiftStart} onChange={(v) => { setDailyShiftStart(v); clearError('dailyShiftStart'); }} />
+                      : <PickerButton label="Select Time" value={dailyShiftStart} hasError={!!errors.dailyShiftStart} onPress={() => { openPicker('time', 'dailyStart'); clearError('dailyShiftStart'); }} />}
+                    <ErrorMsg msg={errors.dailyShiftStart} />
+                  </View>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift End *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={dailyShiftEnd} onChange={(v) => { setDailyShiftEnd(v); clearError('dailyShiftEnd'); }} />
+                      : <PickerButton label="Select Time" value={dailyShiftEnd} hasError={!!errors.dailyShiftEnd} onPress={() => { openPicker('time', 'dailyEnd'); clearError('dailyShiftEnd'); }} />}
+                    <ErrorMsg msg={errors.dailyShiftEnd} />
+                  </View>
+                </View>
+                <View style={styles.field}>
+                  <FieldLabel>Start Date *</FieldLabel>
+                  {Platform.OS === 'web'
+                    ? <WebInput mode="date" value={dailyStartDate} onChange={(v) => { setDailyStartDate(v); clearError('dailyStartDate'); }} />
+                    : <PickerButton label="Select Date" value={dailyStartDate} hasError={!!errors.dailyStartDate} onPress={() => { openPicker('date', 'dailyDate'); clearError('dailyStartDate'); }} />}
+                  <ErrorMsg msg={errors.dailyStartDate} />
+                </View>
+                <View style={styles.toggleCard}>
+                  <View style={styles.toggleCardRow}>
+                    <Text style={styles.toggleLabel}>🍱 Food Provided</Text>
+                    <Toggle value={foodIncluded} onToggle={setFoodIncluded} />
+                  </View>
+                  <View style={styles.toggleCardRow}>
+                    <Text style={styles.toggleLabel}>🛏 Accommodation</Text>
+                    <Toggle value={accommodationIncluded} onToggle={setAccommodationIncluded} />
+                  </View>
+                  <View style={[styles.toggleCardRow, { borderBottomWidth: 0 }]}>
+                    <Text style={styles.toggleLabel}>⏰ Overtime Available</Text>
+                    <Toggle value={overtimeAvailable} onToggle={setOvertimeAvailable} />
+                  </View>
+                </View>
+              </>
+            )}
+
+            {workType === 'month' && (
+              <>
+                <View style={styles.field}>
+                  <FieldLabel>Monthly Salary (₹) *</FieldLabel>
+                  <StyledInput
+                    value={monthlySalary}
+                    onChangeText={(v: string) => { setMonthlySalary(v); clearError('monthlySalary'); }}
+                    placeholder="₹18,000/month"
+                    keyboardType="number-pad"
+                    hasError={!!errors.monthlySalary}
+                  />
+                  <ErrorMsg msg={errors.monthlySalary} />
+                </View>
+                <View style={styles.fieldRow}>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift Start *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={monthlyShiftStart} onChange={(v) => { setMonthlyShiftStart(v); clearError('monthlyShiftStart'); }} />
+                      : <PickerButton label="Select Time" value={monthlyShiftStart} hasError={!!errors.monthlyShiftStart} onPress={() => { openPicker('time', 'monthlyStart'); clearError('monthlyShiftStart'); }} />}
+                    <ErrorMsg msg={errors.monthlyShiftStart} />
+                  </View>
+                  <View style={styles.fieldCol}>
+                    <FieldLabel>Shift End *</FieldLabel>
+                    {Platform.OS === 'web'
+                      ? <WebInput mode="time" value={monthlyShiftEnd} onChange={(v) => { setMonthlyShiftEnd(v); clearError('monthlyShiftEnd'); }} />
+                      : <PickerButton label="Select Time" value={monthlyShiftEnd} hasError={!!errors.monthlyShiftEnd} onPress={() => { openPicker('time', 'monthlyEnd'); clearError('monthlyShiftEnd'); }} />}
+                    <ErrorMsg msg={errors.monthlyShiftEnd} />
+                  </View>
+                </View>
+                <View style={styles.field}>
+                  <FieldLabel>Joining Date *</FieldLabel>
+                  {Platform.OS === 'web'
+                    ? <WebInput mode="date" value={joiningDate} onChange={(v) => { setJoiningDate(v); clearError('joiningDate'); }} />
+                    : <PickerButton label="Select Date" value={joiningDate} hasError={!!errors.joiningDate} onPress={() => { openPicker('date', 'monthlyDate'); clearError('joiningDate'); }} />}
+                  <ErrorMsg msg={errors.joiningDate} />
+                </View>
+                <View style={styles.field}>
+                  <FieldLabel>Working Days/Week</FieldLabel>
+                  <ChipSelector
+                    options={['5 Days', '6 Days', '7 Days'].map(d => ({ key: d, label: d }))}
+                    value={workingDaysPerWeek}
+                    onChange={setWorkingDaysPerWeek}
+                  />
+                </View>
+                <View style={styles.field}>
+                  <FieldLabel>Experience Required</FieldLabel>
+                  <ChipSelector
+                    options={['No Experience', '0–1 Years', '1–3 Years', '3–5 Years', '5+ Years'].map(e => ({ key: e, label: e }))}
+                    value={experienceRequired}
+                    onChange={setExperienceRequired}
+                  />
+                </View>
+                <View style={styles.toggleCard}>
+                  <View style={styles.toggleCardRow}>
+                    <Text style={styles.toggleLabel}>Salary Negotiable</Text>
+                    <Toggle value={salaryNegotiable} onToggle={setSalaryNegotiable} />
+                  </View>
+                  <View style={[styles.toggleCardRow, { borderBottomWidth: 0 }]}>
+                    <Text style={styles.toggleLabel}>PF / ESI Included</Text>
+                    <Toggle value={pfEsiIncluded} onToggle={setPfEsiIncluded} />
+                  </View>
+                </View>
+              </>
+            )}
+          </View>
+        );
+
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>Job Location</Text>
+            <Text style={styles.stepSubtitle}>Workers within 5km will see this first</Text>
+
+            <View style={styles.field}>
+              <FieldLabel>📍 Pin Job Location</FieldLabel>
+              <View style={styles.mapPreview}>
+                <JobPostMap
+                  latitude={locationCoords.latitude}
+                  longitude={locationCoords.longitude}
+                  onSelect={setLocationCoords}
+                />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Full Address *</FieldLabel>
+              <StyledInput
+                value={fullAddress}
+                onChangeText={(v: string) => { setFullAddress(v); clearError('fullAddress'); }}
+                placeholder="Enter building, street, area..."
+                multiline
+                hasError={!!errors.fullAddress}
+              />
+              <ErrorMsg msg={errors.fullAddress} />
+            </View>
+          </View>
+        );
+
+      case 4:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>Worker Requirements</Text>
+            <Text style={styles.stepSubtitle}>Be specific to get the right candidates</Text>
+
+            <View style={styles.field}>
+              <FieldLabel>Workers Needed</FieldLabel>
+              <View style={{ marginTop: 4, alignSelf: 'flex-start' }}>
+                <QuantityEditor value={workersNeeded} onChange={setWorkersNeeded} min={1} max={100} />
+              </View>
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Skills Preferred</FieldLabel>
+              <ChipSelector
+                options={COMMON_SKILLS.map(s => ({ key: s, label: s }))}
+                value={selectedSkills}
+                onChange={setSelectedSkills}
+                multiSelect
+              />
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Gender Preference</FieldLabel>
+              <ChipSelector
+                options={[
+                  { key: 'any', label: 'No Preference' },
+                  { key: 'male', label: 'Male' },
+                  { key: 'female', label: 'Female' },
+                ]}
+                value={genderPref}
+                onChange={setGenderPref}
+              />
+            </View>
+
+            <View style={styles.field}>
+              <FieldLabel>Contact Preference</FieldLabel>
+              <ChipSelector
+                options={[
+                  { key: 'in_app_chat', label: '💬 Chat' },
+                  { key: 'phone_call', label: '📞 Call' },
+                  { key: 'whatsapp', label: '💚 WhatsApp' },
+                ]}
+                value={contactMethod}
+                onChange={setContactMethod}
+              />
+            </View>
+          </View>
+        );
+
+      case 5:
+        const cost = getEstimatedCost();
+        return (
+          <View style={styles.stepContent}>
+            <Text style={styles.stepTitle}>Review & Post</Text>
+            <Text style={styles.stepSubtitle}>Double-check before going live</Text>
+
+            {/* Summary Card */}
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryHeader}>
+                <Ionicons name="document-text" size={18} color={Colors.saffron} />
+                <Text style={styles.summaryHeaderText}>Job Summary</Text>
+              </View>
+              {[
+                { label: 'Title', value: title || '--' },
+                { label: 'Category', value: category.replace('_', ' ') },
+                { label: 'Work Type', value: workType === 'hour' ? 'Hourly' : workType === 'day' ? 'Daily' : 'Monthly' },
+                { label: 'Workers', value: `${workersNeeded}` },
+              ].map(row => (
+                <View key={row.label} style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>{row.label}</Text>
+                  <Text style={styles.summaryValue} numberOfLines={1}>{row.value}</Text>
+                </View>
+              ))}
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryTotalLabel}>Est. Total Cost</Text>
+                <Text style={styles.summaryTotalValue}>
+                  {cost > 0 ? `₹${cost.toLocaleString('en-IN')}` : '--'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Trust badges */}
+            <View style={styles.trustRow}>
+              {[
+                { icon: 'call-outline', text: 'Phone Verified' },
+                { icon: 'person-outline', text: 'ID Verified' },
+                { icon: 'shield-checkmark-outline', text: 'Trusted Employer' },
+              ].map(b => (
+                <View key={b.text} style={styles.trustBadge}>
+                  <Ionicons name={b.icon as any} size={12} color={Colors.green} />
+                  <Text style={styles.trustBadgeText}>{b.text}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Visibility toggle */}
+            <View style={styles.toggleCard}>
+              <View style={[styles.toggleCardRow, { borderBottomWidth: 0 }]}>
+                <View>
+                  <Text style={styles.toggleLabel}>Job Visibility</Text>
+                  <Text style={styles.toggleSub}>{visibility === 'public' ? 'Visible to all nearby workers' : 'Link-only access'}</Text>
+                </View>
+                <Toggle value={visibility === 'public'} onToggle={v => setVisibility(v ? 'public' : 'private')} />
+              </View>
+            </View>
+
+            {/* Terms checkbox */}
             <TouchableOpacity
-              key={cat.key}
-              style={[styles.categoryBtn, category === cat.key && styles.categoryBtnActive]}
-              onPress={() => setCategory(cat.key)}
+              style={[styles.termsRow, !!errors.acceptTerms && styles.termsRowError]}
+              onPress={() => { setAcceptTerms(!acceptTerms); clearError('acceptTerms'); }}
+              activeOpacity={0.8}
             >
-              <Text style={styles.categoryIcon}>{cat.icon}</Text>
-              <Text style={[styles.categoryLabel, category === cat.key && styles.categoryLabelActive]}>
-                {cat.label}
+              <View style={[styles.checkbox, acceptTerms && styles.checkboxActive, !!errors.acceptTerms && styles.checkboxError]}>
+                {acceptTerms && <Ionicons name="checkmark" size={14} color={Colors.white} />}
+              </View>
+              <Text style={styles.termsText}>
+                I confirm this is a genuine job posting and accept the{' '}
+                <Text style={styles.termsLink}>Terms & Conditions</Text>
               </Text>
             </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>💼 Work Type</Text>
-        <View style={styles.chipGrid}>
-          {WORK_TYPES.map((wt) => (
-            <TouchableOpacity
-              key={wt.key}
-              style={[styles.chipBtn, workType === wt.key && styles.chipBtnActive]}
-              onPress={() => setWorkType(wt.key)}
-            >
-              <Text style={[styles.chipBtnText, workType === wt.key && styles.chipBtnTextActive]}>{wt.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>🛠️ Skill Level</Text>
-        <View style={styles.chipGrid}>
-          {SKILL_LEVELS.map((sl) => (
-            <TouchableOpacity
-              key={sl.key}
-              style={[styles.chipBtn, skillLevel === sl.key && styles.chipBtnActive]}
-              onPress={() => setSkillLevel(sl.key)}
-            >
-              <Text style={[styles.chipBtnText, skillLevel === sl.key && styles.chipBtnTextActive]}>{sl.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>👥 Number of Workers Needed *</Text>
-        <QuantityEditor
-          value={quantity}
-          onChange={setQuantity}
-          min={1}
-          max={100}
-        />
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>📝 Full Job Description *</Text>
-        <TextInput
-          style={styles.textarea}
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Exact work details, physical effort, dress requirements..."
-          placeholderTextColor={Colors.gray3}
-          multiline
-        />
-      </View>
-
-      <TouchableOpacity
-        style={[styles.nextBtn, (!title.trim() || !description.trim()) && styles.nextBtnDisabled]}
-        onPress={() => setStep(2)}
-        disabled={!title.trim() || !description.trim()}
-      >
-        <Text style={styles.nextBtnText}>Next: Schedule & Pay →</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderStep2 = () => (
-    <View style={styles.stepContent}>
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>💼 Work Type *</Text>
-        <View style={styles.chipGrid}>
-          {PAY_TYPES.map((pt) => (
-            <TouchableOpacity
-              key={pt.key}
-              style={[styles.chipBtn, payType === pt.key && styles.chipBtnActive]}
-              onPress={() => setPayType(pt.key)}
-            >
-              <Text style={[styles.chipBtnText, payType === pt.key && styles.chipBtnTextActive]}>
-                {pt.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      <View style={[styles.earningsCard, Shadow.md]}>
-        <View style={styles.earningsHeader}>
-          <Text style={styles.earningsTitle}>💡 Quick Earnings Summary</Text>
-          <Text style={styles.earningsSubtitle}>Clear upfront pay breakdown for workers</Text>
-        </View>
-        {payType === 'hour' && (
-          <View style={styles.earningsContent}>
-            <View style={styles.earningsMain}>
-              <Text style={styles.earningsLabel}>Estimated Total Pay</Text>
-              <Text style={styles.earningsTotalValue}>₹{hourlyEstimated || 0}</Text>
-              <Text style={styles.earningsSubText}>for {hoursPerDayNum * hourlyDurationDaysNum || 0} hours total work</Text>
-            </View>
-            <View style={styles.earningsDivider} />
-            <View style={styles.earningsRow}>
-              <View>
-                <Text style={styles.earningsSmallLabel}>Hourly Rate</Text>
-                <Text style={styles.earningsSmallValue}>₹{amountNum || 0}/hr</Text>
-              </View>
-              <View style={styles.earningsVertDivider} />
-              <View>
-                <Text style={styles.earningsSmallLabel}>Monthly Proj.</Text>
-                <Text style={styles.earningsSmallValue}>₹{hourlyMonthlyProjection || 0}</Text>
-              </View>
-            </View>
+            <ErrorMsg msg={errors.acceptTerms} />
           </View>
-        )}
-        {payType === 'day' && (
-          <View style={styles.earningsContent}>
-            <View style={styles.earningsMain}>
-              <Text style={styles.earningsLabel}>Estimated Total Pay</Text>
-              <Text style={styles.earningsTotalValue}>₹{dailyEstimated || 0}</Text>
-              <Text style={styles.earningsSubText}>for {dailyTotalDaysNum || 0} days of work</Text>
-            </View>
-            <View style={styles.earningsDivider} />
-            <View style={styles.earningsRow}>
-              <View>
-                <Text style={styles.earningsSmallLabel}>Daily Rate</Text>
-                <Text style={styles.earningsSmallValue}>₹{amountNum || 0}/day</Text>
-              </View>
-              <View style={styles.earningsVertDivider} />
-              <View>
-                <Text style={styles.earningsSmallLabel}>Monthly Proj.</Text>
-                <Text style={styles.earningsSmallValue}>₹{dailyMonthlyProjection || 0}</Text>
-              </View>
-            </View>
-          </View>
-        )}
-        {payType === 'month' && (
-          <View style={styles.earningsContent}>
-            <View style={styles.earningsMain}>
-              <Text style={styles.earningsLabel}>Monthly Salary</Text>
-              <Text style={styles.earningsTotalValue}>₹{amountNum || 0}</Text>
-              <Text style={styles.earningsSubText}>fixed per month</Text>
-            </View>
-            <View style={styles.earningsDivider} />
-            <View style={styles.earningsRow}>
-              <View>
-                <Text style={styles.earningsSmallLabel}>Est. Daily Avg.</Text>
-                <Text style={styles.earningsSmallValue}>~ ₹{monthlyDailyAverage || 0}/day</Text>
-              </View>
-            </View>
-          </View>
-        )}
-      </View>
+        );
+    }
+  };
 
-      {payType === 'hour' && (
-        <>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>💰 Pay Per Hour *</Text>
-            <View style={styles.payAmountBox}>
-              <Text style={styles.rupeeSymbol}>₹</Text>
-              <TextInput
-                style={styles.payInput}
-                value={payAmount}
-                onChangeText={setPayAmount}
-                keyboardType="number-pad"
-                placeholder="120"
-                placeholderTextColor={Colors.gray3}
-              />
-              <Text style={styles.perText}>/hour</Text>
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>⏰ Working Hours Per Day *</Text>
-            <View style={styles.chipGrid}>
-              {[
-                { label: '9 AM - 5 PM', start: '9:00 AM', end: '5:00 PM' },
-                { label: '9 AM - 6 PM', start: '9:00 AM', end: '6:00 PM' },
-                { label: 'Night 8 PM - 4 AM', start: '8:00 PM', end: '4:00 AM' },
-              ].map((t) => (
-                <TouchableOpacity
-                  key={t.label}
-                  style={[styles.chipBtn, workStartTime === t.start && workEndTime === t.end && styles.chipBtnActive]}
-                  onPress={() => { setWorkStartTime(t.start); setWorkEndTime(t.end); }}
-                >
-                  <Text style={[styles.chipBtnText, workStartTime === t.start && workEndTime === t.end && styles.chipBtnTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.fieldRow}>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>⏳ Total Hours/Day *</Text>
-              <TextInput
-                style={styles.input}
-                value={hourlyHoursPerDay}
-                onChangeText={setHourlyHoursPerDay}
-                keyboardType="decimal-pad"
-                placeholder="8"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>📆 Working Days/Week *</Text>
-              <TextInput
-                style={styles.input}
-                value={hourlyDaysPerWeek}
-                onChangeText={setHourlyDaysPerWeek}
-                keyboardType="number-pad"
-                placeholder="6"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>🗓️ Expected Total Duration *</Text>
-            <TextInput
-              style={styles.input}
-              value={hourlyDurationDays}
-              onChangeText={setHourlyDurationDays}
-              keyboardType="number-pad"
-              placeholder="15 days"
-              placeholderTextColor={Colors.gray3}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>📅 Payment Schedule *</Text>
-            <View style={styles.chipGrid}>
-              {HOURLY_SCHEDULES.map((ps) => (
-                <TouchableOpacity
-                  key={ps.key}
-                  style={[styles.chipBtn, hourlyPaymentSchedule === ps.key && styles.chipBtnActive]}
-                  onPress={() => setHourlyPaymentSchedule(ps.key)}
-                >
-                  <Text style={[styles.chipBtnText, hourlyPaymentSchedule === ps.key && styles.chipBtnTextActive]}>
-                    {ps.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </>
-      )}
-
-      {payType === 'day' && (
-        <>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>💰 Pay Per Day *</Text>
-            <View style={styles.payAmountBox}>
-              <Text style={styles.rupeeSymbol}>₹</Text>
-              <TextInput
-                style={styles.payInput}
-                value={payAmount}
-                onChangeText={setPayAmount}
-                keyboardType="number-pad"
-                placeholder="700"
-                placeholderTextColor={Colors.gray3}
-              />
-              <Text style={styles.perText}>/day</Text>
-            </View>
-          </View>
-
-          <View style={styles.fieldRow}>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>📅 Start Date *</Text>
-              <TextInput
-                style={styles.input}
-                value={dailyStartDate}
-                onChangeText={setDailyStartDate}
-                placeholder="e.g. 20 May"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>📅 End Date *</Text>
-              <TextInput
-                style={styles.input}
-                value={dailyEndDate}
-                onChangeText={setDailyEndDate}
-                placeholder="e.g. 25 May"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>⏰ Working Time *</Text>
-            <View style={styles.chipGrid}>
-              {[
-                { label: '8 AM - 6 PM', start: '8:00 AM', end: '6:00 PM' },
-                { label: '9 AM - 6 PM', start: '9:00 AM', end: '6:00 PM' },
-                { label: '10 AM - 7 PM', start: '10:00 AM', end: '7:00 PM' },
-              ].map((t) => (
-                <TouchableOpacity
-                  key={t.label}
-                  style={[styles.chipBtn, workStartTime === t.start && workEndTime === t.end && styles.chipBtnActive]}
-                  onPress={() => { setWorkStartTime(t.start); setWorkEndTime(t.end); }}
-                >
-                  <Text style={[styles.chipBtnText, workStartTime === t.start && workEndTime === t.end && styles.chipBtnTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>🗓️ Total Number of Days *</Text>
-            <TextInput
-              style={styles.input}
-              value={dailyTotalDays}
-              onChangeText={setDailyTotalDays}
-              keyboardType="number-pad"
-              placeholder="5"
-              placeholderTextColor={Colors.gray3}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>📅 Payment Schedule *</Text>
-            <View style={styles.chipGrid}>
-              {DAILY_SCHEDULES.map((ps) => (
-                <TouchableOpacity
-                  key={ps.key}
-                  style={[styles.chipBtn, dailyPaymentSchedule === ps.key && styles.chipBtnActive]}
-                  onPress={() => setDailyPaymentSchedule(ps.key)}
-                >
-                  <Text style={[styles.chipBtnText, dailyPaymentSchedule === ps.key && styles.chipBtnTextActive]}>
-                    {ps.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </>
-      )}
-
-      {payType === 'month' && (
-        <>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>💰 Monthly Salary *</Text>
-            <View style={styles.payAmountBox}>
-              <Text style={styles.rupeeSymbol}>₹</Text>
-              <TextInput
-                style={styles.payInput}
-                value={payAmount}
-                onChangeText={setPayAmount}
-                keyboardType="number-pad"
-                placeholder="18000"
-                placeholderTextColor={Colors.gray3}
-              />
-              <Text style={styles.perText}>/month</Text>
-            </View>
-          </View>
-
-          <View style={styles.fieldRow}>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>🗓️ Working Days *</Text>
-              <TextInput
-                style={styles.input}
-                value={monthlyWorkingDays}
-                onChangeText={setMonthlyWorkingDays}
-                placeholder="Mon - Sat"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-            <View style={styles.fieldCol}>
-              <Text style={styles.fieldLabel}>🛌 Weekly Off *</Text>
-              <TextInput
-                style={styles.input}
-                value={monthlyWeeklyOff}
-                onChangeText={setMonthlyWeeklyOff}
-                placeholder="Sunday"
-                placeholderTextColor={Colors.gray3}
-              />
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>⏰ Daily Timing *</Text>
-            <View style={styles.chipGrid}>
-              {[
-                { label: '9 AM - 7 PM', start: '9:00 AM', end: '7:00 PM' },
-                { label: '10 AM - 7 PM', start: '10:00 AM', end: '7:00 PM' },
-                { label: '8 AM - 5 PM', start: '8:00 AM', end: '5:00 PM' },
-              ].map((t) => (
-                <TouchableOpacity
-                  key={t.label}
-                  style={[styles.chipBtn, workStartTime === t.start && workEndTime === t.end && styles.chipBtnActive]}
-                  onPress={() => { setWorkStartTime(t.start); setWorkEndTime(t.end); }}
-                >
-                  <Text style={[styles.chipBtnText, workStartTime === t.start && workEndTime === t.end && styles.chipBtnTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>🕒 Overtime Policy (Optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={monthlyOvertimePolicy}
-              onChangeText={setMonthlyOvertimePolicy}
-              placeholder="e.g. ₹100/hr after 8 hrs"
-              placeholderTextColor={Colors.gray3}
-            />
-          </View>
-
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>📆 Salary Payment Date *</Text>
-            <View style={styles.chipGrid}>
-              {MONTHLY_SALARY_DATES.map((ps) => (
-                <TouchableOpacity
-                  key={ps.key}
-                  style={[styles.chipBtn, monthlySalaryDate === ps.key && styles.chipBtnActive]}
-                  onPress={() => setMonthlySalaryDate(ps.key)}
-                >
-                  <Text style={[styles.chipBtnText, monthlySalaryDate === ps.key && styles.chipBtnTextActive]}>
-                    {ps.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-        </>
-      )}
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>🧾 Payment Note (Shown to workers)</Text>
-        <TextInput
-          style={styles.input}
-          value={paymentNote}
-          onChangeText={setPaymentNote}
-          placeholder="e.g. Salary credited every Saturday"
-          placeholderTextColor={Colors.gray3}
-        />
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>💳 Payment Mode</Text>
-        <TextInput
-          style={styles.input}
-          value={paymentMode}
-          onChangeText={setPaymentMode}
-          placeholder="UPI / Bank / Cash"
-          placeholderTextColor={Colors.gray3}
-        />
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>🎁 Payment Transparency & Benefits</Text>
-        <View style={styles.optionsBox}>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>💵 Advance Available</Text>
-            <Toggle value={advanceAvailable} onToggle={setAdvanceAvailable} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>⏱️ Overtime Available</Text>
-            <Toggle value={overtimeAvailable} onToggle={setOvertimeAvailable} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>🎯 Bonus Available</Text>
-            <Toggle value={bonusAvailable} onToggle={setBonusAvailable} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>💼 Incentives Available</Text>
-            <Toggle value={incentivesAvailable} onToggle={setIncentivesAvailable} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>✅ Attendance Bonus</Text>
-            <Toggle value={attendanceBonus} onToggle={setAttendanceBonus} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>🍛 Food Included</Text>
-            <Toggle value={foodIncluded} onToggle={setFoodIncluded} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>🏠 Accommodation Included</Text>
-            <Toggle value={stayIncluded} onToggle={setStayIncluded} />
-          </View>
-          <View style={[styles.optionRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.optionLabel}>🚌 Travel Allowance</Text>
-            <Toggle value={travelAllowance} onToggle={setTravelAllowance} />
-          </View>
-        </View>
-      </View>
-
-      {overtimeAvailable && (
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>⏱️ Overtime Rate (per hour)</Text>
-          <TextInput
-            style={styles.input}
-            value={overtimeRate}
-            onChangeText={setOvertimeRate}
-            placeholder="e.g. ₹150/hr"
-            placeholderTextColor={Colors.gray3}
-          />
-        </View>
-      )}
-
-      {bonusAvailable && (
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>🎯 Bonus Details</Text>
-          <TextInput
-            style={styles.input}
-            value={bonusAmount}
-            onChangeText={setBonusAmount}
-            placeholder="e.g. ₹500 on completion"
-            placeholderTextColor={Colors.gray3}
-          />
-        </View>
-      )}
-
-      {incentivesAvailable && (
-        <View style={styles.field}>
-          <Text style={styles.fieldLabel}>💼 Incentives Details</Text>
-          <TextInput
-            style={styles.input}
-            value={incentivesDetails}
-            onChangeText={setIncentivesDetails}
-            placeholder="e.g. Extra ₹30 per delivery"
-            placeholderTextColor={Colors.gray3}
-          />
-        </View>
-      )}
-
-      <View style={styles.navBtns}>
-        <TouchableOpacity style={styles.backStepBtn} onPress={() => setStep(1)}>
-          <Text style={styles.backStepBtnText}>← Back</Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.nextBtn2]} 
-          onPress={() => setStep(3)}
-        >
-          <Text style={styles.nextBtnText}>Next: Location & Post →</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderStep3 = () => (
-    <View style={styles.stepContent}>
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>📍 Job Location *</Text>
-        <View style={styles.mapPreview}>
-          <JobPostMap
-            latitude={locationCoords.latitude}
-            longitude={locationCoords.longitude}
-            onSelect={setLocationCoords}
-          />
-        </View>
-        <TextInput
-          style={styles.input}
-          value={locationName}
-          onChangeText={setLocationName}
-          placeholder="Enter area or landmark..."
-          placeholderTextColor={Colors.gray3}
-        />
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>🗣️ Language Preference</Text>
-        <TextInput
-          style={styles.input}
-          value={languagePref}
-          onChangeText={setLanguagePref}
-          placeholder="e.g. Telugu, Hindi (Optional)"
-          placeholderTextColor={Colors.gray3}
-        />
-      </View>
-
-      <View style={styles.field}>
-        <Text style={styles.fieldLabel}>⚙️ Job Options</Text>
-        <View style={styles.optionsBox}>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>⚡ Mark as Urgent</Text>
-            <Toggle value={isUrgent} onToggle={setIsUrgent} />
-          </View>
-          <View style={styles.optionRow}>
-            <Text style={styles.optionLabel}>📞 Show My Phone Number</Text>
-            <Toggle value={showPhone} onToggle={setShowPhone} />
-          </View>
-          <View style={[styles.optionRow, { borderBottomWidth: 0 }]}>
-            <Text style={styles.optionLabel}>🔔 Notify me instantly</Text>
-            <Toggle value={notifyOnApply} onToggle={setNotifyOnApply} />
-          </View>
-        </View>
-      </View>
-
-      <View style={[styles.reviewCard, Shadow.sm]}>
-        <Text style={styles.reviewCardTitle}>📋 Summary</Text>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Title</Text><Text style={styles.reviewValue}>{title}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Pay</Text><Text style={styles.reviewValue}>₹{payAmount}/{payType}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Schedule</Text><Text style={styles.reviewValue}>{scheduleSummary}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Timing</Text><Text style={styles.reviewValue}>{timingSummary}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Payment</Text><Text style={styles.reviewValue}>{paymentFrequencyLabel || '—'}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Estimated Total</Text><Text style={styles.reviewValue}>₹{totalPay}</Text></View>
-        <View style={styles.reviewRow}><Text style={styles.reviewLabel}>Workers</Text><Text style={styles.reviewValue}>{quantity} needed</Text></View>
-      </View>
-
-      <View style={styles.navBtns}>
-        <TouchableOpacity style={styles.backStepBtn} onPress={() => setStep(2)}>
-          <Text style={styles.backStepBtnText}>← Edit</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.postBtn, isPosting && { opacity: 0.7 }]}
-          onPress={handlePost}
-          disabled={isPosting}
-        >
-          {isPosting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.postBtnText}>🚀 Post Job Live</Text>}
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
+  // ── Layout ───────────────────────────────────────────────────────────────
   return (
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={{ backgroundColor: Colors.navy }}>
-        <TopBar title="Post a Job" showBack showPostJob={false} />
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.headerBack} onPress={handleBack} activeOpacity={0.8}>
+            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Post a Job</Text>
+          <View style={{ width: 40 }} />
+        </View>
       </SafeAreaView>
 
-      <View style={styles.progressBar}>
-        {[1, 2, 3].map((s) => (
-          <View key={s} style={[styles.progressSegment, s <= step && styles.progressSegmentActive]} />
-        ))}
+      {/* Progress Bar */}
+      <View style={styles.progressSection}>
+        <View style={styles.progressBarBg}>
+          <Animated.View
+            style={[
+              styles.progressBarFill,
+              { width: `${(currentStep / 5) * 100}%` as any },
+            ]}
+          />
+        </View>
+        <View style={styles.stepsRow}>
+          {STEPS.map(step => {
+            const isDone = currentStep > step.id;
+            const isCurrent = currentStep === step.id;
+            return (
+              <TouchableOpacity
+                key={step.id}
+                style={styles.stepDot}
+                onPress={() => currentStep > step.id && animateToStep(step.id)}
+                activeOpacity={0.7}
+              >
+                <View style={[
+                  styles.stepDotCircle,
+                  isDone && styles.stepDotDone,
+                  isCurrent && styles.stepDotCurrent,
+                ]}>
+                  {isDone
+                    ? <Ionicons name="checkmark" size={12} color={Colors.white} />
+                    : <Ionicons name={step.icon as any} size={12} color={isCurrent ? Colors.white : Colors.gray4} />}
+                </View>
+                <Text style={[styles.stepDotLabel, isCurrent && styles.stepDotLabelActive]}>
+                  {step.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
-      <View style={styles.stepLabel}>
-        <Text style={styles.stepLabelText}>
-          {step === 1 ? '📝 Step 1 — Job Info' : step === 2 ? '💰 Step 2 — Schedule & Pay' : '✅ Step 3 — Location & Post'}
-        </Text>
-      </View>
-
-      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-        {step === 3 && renderStep3()}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ transform: [{ translateY: slideAnim }] }}>
+          {renderStep()}
+        </Animated.View>
       </ScrollView>
+
+      {/* Bottom CTA */}
+      <View style={styles.bottomCTA}>
+        <View style={styles.ctaRow}>
+          {/* Previous button — always visible */}
+          <TouchableOpacity
+            style={styles.prevBtn}
+            onPress={handleBack}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="arrow-back" size={20} color={Colors.ink2} />
+            <Text style={styles.prevBtnText}>
+              {currentStep === 1 ? 'Exit' : 'Back'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Primary action */}
+          {currentStep === 5 ? (
+            <TouchableOpacity
+              style={[styles.ctaBtn, styles.ctaBtnPrimary, isPosting && { opacity: 0.7 }]}
+              onPress={handlePost}
+              disabled={isPosting}
+              activeOpacity={0.88}
+            >
+              {isPosting ? (
+                <>
+                  <Ionicons name="hourglass-outline" size={18} color={Colors.white} />
+                  <Text style={styles.ctaBtnText}>Posting...</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="rocket-outline" size={18} color={Colors.white} />
+                  <Text style={styles.ctaBtnText}>Post Job</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.ctaBtn, styles.ctaBtnPrimary]}
+              onPress={handleNext}
+              activeOpacity={0.88}
+            >
+              <Text style={styles.ctaBtnText}>Continue</Text>
+              <Ionicons name="arrow-forward" size={18} color={Colors.white} />
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.stepCounter}>Step {currentStep} of 5</Text>
+      </View>
+
+      {/* iOS Date/Time Picker Modal */}
+      {showPicker && Platform.OS === 'ios' && (
+        <Modal transparent animationType="slide" visible={showPicker}>
+          <View style={styles.pickerModal}>
+            <View style={styles.pickerSheet}>
+              <View style={styles.pickerSheetHeader}>
+                <TouchableOpacity onPress={() => setShowPicker(false)}>
+                  <Text style={styles.pickerCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => { handleDateSelect(tempDate); setShowPicker(false); }}>
+                  <Text style={styles.pickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={tempDate}
+                mode={pickerMode}
+                display="spinner"
+                onChange={(_, d) => { if (d) setTempDate(d); }}
+              />
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {showPicker && Platform.OS !== 'ios' && Platform.OS !== 'web' && (
+        <DateTimePicker
+          value={new Date()}
+          mode={pickerMode}
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowPicker(false);
+            if (event.type === 'set' && selectedDate) handleDateSelect(selectedDate);
+          }}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: Colors.gray1 },
+  screen: { flex: 1, backgroundColor: Colors.background },
   scroll: { flex: 1 },
-  row: { flexDirection: 'row', gap: 8 },
-  progressBar: { flexDirection: 'row', gap: 6, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: Colors.white },
-  progressSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: Colors.gray2 },
-  progressSegmentActive: { backgroundColor: Colors.saffron },
-  stepLabel: {
-    backgroundColor: Colors.saffronLight,
-    borderLeftWidth: 3,
-    borderLeftColor: Colors.saffron,
-    marginHorizontal: 14,
-    marginVertical: 10,
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  scrollContent: { paddingVertical: 24, paddingHorizontal: 20, paddingBottom: 40 },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  stepLabelText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.base, color: Colors.saffronDark },
-  stepContent: { paddingHorizontal: 14, paddingBottom: 20 },
-  field: { marginBottom: 16 },
+  headerBack: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.overlayLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize['4xl'],
+    color: Colors.white,
+    letterSpacing: -0.3,
+  },
+
+  // Progress
+  progressSection: {
+    backgroundColor: Colors.white,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray2,
+    ...Shadow.xs,
+  },
+  progressBarBg: {
+    height: 3,
+    backgroundColor: Colors.gray2,
+    borderRadius: Radius.round,
+    marginBottom: 12,
+  },
+  progressBarFill: {
+    height: '100%',
+    backgroundColor: Colors.saffron,
+    borderRadius: Radius.round,
+  },
+  stepsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  stepDot: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  stepDotCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.gray2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotDone: { backgroundColor: Colors.green },
+  stepDotCurrent: { backgroundColor: Colors.saffron },
+  stepDotLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 9,
+    color: Colors.gray4,
+  },
+  stepDotLabelActive: {
+    color: Colors.saffron,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+
+  // Step content
+  stepContent: { gap: 0 },
+  stepTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 26,
+    color: Colors.ink,
+    letterSpacing: -0.6,
+    marginBottom: 4,
+  },
+  stepSubtitle: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.gray4,
+    marginBottom: 28,
+    lineHeight: 22,
+  },
+  field: { marginBottom: 20 },
+  fieldRow: { flexDirection: 'row', gap: 14, marginBottom: 20 },
+  fieldCol: { flex: 1 },
   fieldLabel: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.base,
+    fontSize: FontSize.md,
     color: Colors.ink2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
     marginBottom: 8,
   },
-  earningsCard: {
+
+  // Inputs
+  input: {
     backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.greenLight,
-    marginBottom: 24,
-    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    borderRadius: Radius.md,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+    minHeight: 50,
   },
-  earningsHeader: {
-    backgroundColor: Colors.greenLight,
+  textarea: {
+    minHeight: 110,
+    paddingTop: 14,
+  },
+  inputDisabled: {
+    backgroundColor: Colors.gray1,
+    color: Colors.gray4,
+  },
+  inputError: {
+    borderColor: Colors.red,
+    backgroundColor: Colors.redLight,
+  },
+  errorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+  },
+  errorText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.red,
+    flex: 1,
+  },
+  charCountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  charHint: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray4,
+  },
+  charCount: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray4,
+  },
+
+  // Category cards
+  categoryCard: {
+    width: 80,
+    height: 80,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  categoryCardActive: {
+    borderColor: Colors.saffron,
+    backgroundColor: Colors.saffronLight,
+    ...Shadow.sm,
+  },
+  categoryIcon: { fontSize: 26 },
+  categoryLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.ink2,
+    textAlign: 'center',
+  },
+  categoryLabelActive: {
+    color: Colors.saffronDark,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+
+  // Segment control (work type)
+  segmentControl: {
+    flexDirection: 'row',
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.md,
+    padding: 4,
+  },
+  segment: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+    alignItems: 'center',
+  },
+  segmentActive: {
+    backgroundColor: Colors.white,
+    ...Shadow.sm,
+  },
+  segmentText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.md,
+    color: Colors.gray4,
+  },
+  segmentTextActive: {
+    color: Colors.ink,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+
+  // Chips
+  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: Radius.round,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    backgroundColor: Colors.white,
+  },
+  chipActive: {
+    borderColor: Colors.saffron,
+    backgroundColor: Colors.saffronLight,
+  },
+  chipText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.ink2,
+  },
+  chipTextActive: {
+    color: Colors.saffronDark,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+
+  // Picker button
+  pickerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    borderRadius: Radius.md,
+    paddingHorizontal: 16,
+    height: 50,
+  },
+  pickerBtnText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+  },
+  pickerBtnPlaceholder: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.gray3,
+  },
+  pickerBtnError: {
+    borderColor: Colors.red,
+    backgroundColor: Colors.redLight,
+  },
+  pickerBtnPlaceholderError: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.red + 'AA',
+  },
+
+  // Toggle card
+  toggleCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  toggleCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.green + '30',
+    borderBottomColor: Colors.gray1,
   },
-  earningsTitle: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.lg,
-    color: Colors.greenDark,
-  },
-  earningsSubtitle: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.green,
-    marginTop: 2,
-  },
-  earningsContent: {
-    padding: 20,
-  },
-  earningsMain: {
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  earningsLabel: {
+  toggleLabel: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.md,
-    color: Colors.gray4,
-    marginBottom: 4,
+    color: Colors.ink2,
   },
-  earningsTotalValue: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 36,
-    color: Colors.greenDark,
-  },
-  earningsSubText: {
-    fontFamily: FontFamily.bodyMedium,
+  toggleSub: {
+    fontFamily: FontFamily.body,
     fontSize: FontSize.sm,
     color: Colors.gray4,
-    marginTop: 6,
+    marginTop: 2,
   },
-  earningsDivider: {
-    height: 1,
-    backgroundColor: Colors.gray2,
-    marginVertical: 16,
+
+  // Map preview
+  mapPreview: {
+    height: 180,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.gray2,
   },
-  earningsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  earningsVertDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: Colors.gray2,
-  },
-  earningsSmallLabel: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.xs,
-    color: Colors.gray4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  earningsSmallValue: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.lg,
-    color: Colors.ink,
-    textAlign: 'center',
-  },
-  sectionCard: {
+
+  // Review / Summary
+  summaryCard: {
     backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    padding: 14,
+    borderRadius: Radius.lg,
+    padding: 18,
     borderWidth: 1,
     borderColor: Colors.gray2,
     marginBottom: 16,
+    gap: 12,
+    ...Shadow.sm,
   },
-  sectionTitle: {
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  summaryHeaderText: {
     fontFamily: FontFamily.headingBold,
     fontSize: FontSize.lg,
     color: Colors.ink,
-    marginBottom: 10,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
   },
   summaryLabel: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.base,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
     color: Colors.gray4,
   },
   summaryValue: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.base,
+    fontSize: FontSize.sm,
     color: Colors.ink,
+    maxWidth: '60%',
+    textTransform: 'capitalize',
   },
-  fieldRow: { flexDirection: 'row', gap: 10 },
-  fieldCol: { flex: 1 },
-  input: {
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    borderRadius: Radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontFamily: FontFamily.body,
+  summaryDivider: { height: 1, backgroundColor: Colors.gray2 },
+  summaryTotalLabel: {
+    fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.md,
     color: Colors.ink,
-    backgroundColor: Colors.white,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  textarea: {
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    borderRadius: Radius.md,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    backgroundColor: Colors.white,
-    minHeight: 120,
-    marginBottom: 8,
-    textAlignVertical: 'top',
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+  summaryTotalValue: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize['3xl'],
+    color: Colors.saffron,
   },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  categoryBtn: {
-    flexBasis: '30%',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
+  trustRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    backgroundColor: Colors.white,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    marginBottom: 16,
   },
-  categoryBtnActive: { 
-    borderColor: Colors.saffron, 
-    backgroundColor: Colors.saffronLight, 
-  },
-  categoryIcon: { fontSize: 24 },
-  categoryLabel: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.xs, color: Colors.ink2, textAlign: 'center' },
-  categoryLabelActive: { color: Colors.saffronDark, fontFamily: FontFamily.bodySemiBold },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chipBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: Radius.full,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    backgroundColor: Colors.white,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  chipBtnActive: { borderColor: Colors.saffron, backgroundColor: Colors.saffron },
-  chipBtnText: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.sm, color: Colors.ink2 },
-  chipBtnTextActive: { color: Colors.white, fontFamily: FontFamily.bodySemiBold },
-  payAmountBox: {
-    flex: 1,
+  trustBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: Colors.saffron,
-    borderRadius: Radius.md,
-    backgroundColor: '#FFF8F2', // very light saffron
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 8,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  rupeeSymbol: { fontFamily: FontFamily.headingBold, fontSize: 28, color: Colors.saffronDark },
-  payInput: { flex: 1, fontFamily: FontFamily.headingBold, fontSize: 32, color: Colors.saffronDark, margin: 0, padding: 0 },
-  perText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.saffronDark, opacity: 0.8 },
-  optionsBox: {
-    backgroundColor: Colors.white,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  optionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
-  },
-  optionLabel: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.md, color: Colors.ink2 },
-  nextBtn: {
-    backgroundColor: Colors.saffron,
-    paddingVertical: 15,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    marginTop: 8,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  nextBtn2: {
-    flex: 1,
-    backgroundColor: Colors.saffron,
-    paddingVertical: 14,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-  },
-  nextBtnDisabled: { opacity: 0.5, shadowOpacity: 0 },
-  nextBtnText: { fontFamily: FontFamily.headingBold, fontSize: FontSize.lg, color: Colors.white },
-  navBtns: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  backStepBtn: {
-    flex: 0.35,
-    paddingVertical: 14,
-    borderRadius: Radius.md,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-  },
-  backStepBtnText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.lg, color: Colors.ink2 },
-  mapPreview: {
-    height: 120,
-    backgroundColor: '#E8F0E8',
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-    marginTop: 8,
-  },
-  mapPin: { fontSize: 32 },
-  mapLabel: {
-    position: 'absolute',
-    bottom: 8,
-    backgroundColor: Colors.white,
-    borderRadius: 6,
+    gap: 5,
+    backgroundColor: Colors.greenLight,
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 5,
+    borderRadius: Radius.round,
+  },
+  trustBadgeText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.greenDark,
+  },
+
+  // Terms
+  termsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: Colors.gray2,
+    marginTop: 4,
   },
-  mapLabelText: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.sm, color: Colors.ink2 },
-  reviewCard: {
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Colors.gray3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxActive: {
+    backgroundColor: Colors.saffron,
+    borderColor: Colors.saffron,
+  },
+  checkboxError: {
+    borderColor: Colors.red,
+    backgroundColor: Colors.redLight,
+  },
+  termsRowError: {
+    borderColor: Colors.red,
+    backgroundColor: Colors.redLight,
+  },
+
+  termsText: {
+    flex: 1,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.ink2,
+    lineHeight: 20,
+  },
+  termsLink: {
+    color: Colors.saffron,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+
+  // Bottom CTA
+  bottomCTA: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1.5,
-    borderColor: Colors.saffronLight,
-    shadowColor: Colors.ink,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray2,
+    alignItems: 'center',
+    gap: 10,
+    ...Shadow.md,
   },
-  reviewCardTitle: {
+  ctaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+  },
+  prevBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 54,
+    paddingHorizontal: 18,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.gray1,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+  },
+  prevBtnText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink2,
+  },
+  ctaBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 54,
+    borderRadius: Radius.lg,
+  },
+  ctaBtnPrimary: {
+    backgroundColor: Colors.saffron,
+    ...Shadow.saffron,
+  },
+  ctaBtnText: {
     fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['2xl'],
-    color: Colors.saffronDark,
-    marginBottom: 16,
-    paddingBottom: 12,
+    fontSize: FontSize['4xl'],
+    color: Colors.white,
+    letterSpacing: 0.3,
+  },
+  stepCounter: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.gray4,
+  },
+
+  // Picker Modal
+  pickerModal: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  pickerSheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: Radius.xxl,
+    borderTopRightRadius: Radius.xxl,
+    paddingBottom: 32,
+  },
+  pickerSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: Colors.gray2,
   },
-  reviewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray1,
+  pickerCancel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.lg,
+    color: Colors.gray4,
   },
-  reviewLabel: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.base, color: Colors.ink2 },
-  reviewValue: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.base, color: Colors.ink, flex: 1, textAlign: 'right' },
-  postBtn: {
-    flex: 1,
-    backgroundColor: Colors.saffron,
-    paddingVertical: 16,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    shadowColor: Colors.saffronDark,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+  pickerDone: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.lg,
+    color: Colors.saffron,
   },
-  postBtnText: { fontFamily: FontFamily.headingBold, fontSize: FontSize.lg, color: Colors.white, letterSpacing: 0.5 },
+
+  // Success screen
   successScreen: { flex: 1, backgroundColor: Colors.white },
   successContent: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    paddingHorizontal: 28,
   },
-  successEmoji: { fontSize: 80, marginBottom: 20 },
+  successIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
   successTitle: {
     fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['5xl'],
+    fontSize: 32,
     color: Colors.ink,
     textAlign: 'center',
+    letterSpacing: -0.8,
     marginBottom: 10,
   },
   successSub: {
-    fontFamily: FontFamily.body,
+    fontFamily: FontFamily.bodyMedium,
     fontSize: FontSize.lg,
     color: Colors.gray4,
     textAlign: 'center',
     lineHeight: 24,
     marginBottom: 32,
+    maxWidth: 280,
+  },
+  successStats: {
+    flexDirection: 'row',
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.lg,
+    padding: 20,
+    marginBottom: 32,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+  },
+  successStat: { alignItems: 'center', gap: 4 },
+  successStatValue: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize['5xl'],
+    color: Colors.saffron,
+    letterSpacing: -0.5,
+  },
+  successStatLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+    textAlign: 'center',
+  },
+  successStatDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: Colors.gray2,
   },
   successBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     width: '100%',
     backgroundColor: Colors.saffron,
-    paddingVertical: 15,
-    borderRadius: Radius.md,
-    alignItems: 'center',
+    paddingVertical: 16,
+    borderRadius: Radius.lg,
+    justifyContent: 'center' as any,
     marginBottom: 12,
+    ...Shadow.saffron,
   },
-  successBtnText: { fontFamily: FontFamily.headingBold, fontSize: FontSize['2xl'], color: Colors.white },
+  successBtnText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize['4xl'],
+    color: Colors.white,
+  },
   successBtn2: {
     width: '100%',
     paddingVertical: 15,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     alignItems: 'center',
     borderWidth: 1.5,
     borderColor: Colors.gray2,
   },
-  successBtn2Text: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize['2xl'], color: Colors.ink2 },
+  successBtn2Text: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize['2xl'],
+    color: Colors.ink2,
+  },
 });

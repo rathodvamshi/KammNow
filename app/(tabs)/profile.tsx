@@ -11,6 +11,7 @@ import {
   Platform,
   Dimensions,
   Share,
+  ScrollView,
 } from 'react-native';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,11 +20,10 @@ import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../../src
 import { Avatar } from '../../src/components/atoms/Avatar';
 import { BottomNav } from '../../src/components/organisms/BottomNav';
 import { useAuthStore } from '../../src/store/authStore';
+import { useUIStore } from '../../src/store/uiStore';
 import { MOCK_RATINGS } from '../../src/services/mockData';
 
 const { width } = Dimensions.get('window');
-const TABS = ['Overview', 'Skills', 'Reviews'];
-const TAB_WIDTH = (width - 32) / 3;
 
 const SKILL_OPTIONS = [
   'Delivery', 'Driver', 'Shop Helper', 'Labour', 'Events',
@@ -32,18 +32,36 @@ const SKILL_OPTIONS = [
 
 export default function ProfileScreen() {
   const { user, updateUser, logout } = useAuthStore();
+  const { currentRole, showToast } = useUIStore();
+  const isSeeker = currentRole === 'seeker';
+
+  const TABS = isSeeker ? ['Overview', 'Skills', 'Reviews'] : ['Company', 'Listings', 'Team'];
+  const tabWidth = (width - 32) / TABS.length;
+
   const [activeTab, setActiveTab] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
   
-  // Edit State
+  // Seeker Edit State
   const [name, setName] = useState(user?.name ?? '');
   const [age, setAge] = useState(String(user?.age ?? ''));
   const [skills, setSkills] = useState<string[]>(user?.skills ?? []);
   const [locationName, setLocationName] = useState(user?.location_name ?? '');
 
+  // Provider Edit State
+  const [companyName, setCompanyName] = useState('Sai Enterprises');
+  const [businessCategory, setBusinessCategory] = useState('Retail & Logistics');
+  const [branchLocation, setBranchLocation] = useState('Ameerpet, Hyderabad');
+  const [gstin, setGstin] = useState('36AAAAA1111A1Z1');
+
   // Animation Refs
   const tabIndicatorPos = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(1)).current;
+
+  // Reset tab index on role switch to avoid out of bounds
+  useEffect(() => {
+    setActiveTab(0);
+    tabIndicatorPos.setValue(0);
+  }, [currentRole]);
 
   const handleTabPress = (index: number) => {
     // Fade out content
@@ -63,14 +81,18 @@ export default function ProfileScreen() {
 
     // Move Indicator
     Animated.spring(tabIndicatorPos, {
-      toValue: index * TAB_WIDTH,
+      toValue: index * tabWidth,
       useNativeDriver: true,
       bounciness: 4,
     }).start();
   };
 
   const handleSave = () => {
-    updateUser({ name, age: parseInt(age) || undefined, skills, location_name: locationName });
+    if (isSeeker) {
+      updateUser({ name, age: parseInt(age) || undefined, skills, location_name: locationName });
+    } else {
+      showToast('Company profile details updated', 'success');
+    }
     setIsEditing(false);
   };
 
@@ -84,7 +106,7 @@ export default function ProfileScreen() {
   const handleShare = async () => {
     try {
       await Share.share({
-        message: `Check out ${user?.name}'s professional profile on KaamNow!`,
+        message: `Check out ${isSeeker ? user?.name : companyName}'s professional profile on KaamNow!`,
       });
     } catch (error) {
       console.log('Share failed', error);
@@ -101,10 +123,28 @@ export default function ProfileScreen() {
   }));
   const maxCount = Math.max(...starCounts.map((s) => s.count), 1);
 
-  // --- Render Functions ---
+  // --- Render Functions (Seeker) ---
 
   const renderOverview = () => (
     <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      {/* Seeker Greeting inside Seeker Profile */}
+      <View style={styles.seekerGreetingCard}>
+        <Text style={styles.seekerGreetingText}>Good Morning, Raju 👋</Text>
+        <Text style={styles.seekerSubText}>Your profile is looking great today</Text>
+      </View>
+
+      {/* Seeker Completeness Progress Setup inside Seeker Profile */}
+      <View style={styles.seekerProgressCard}>
+        <View style={styles.progressCardHeader}>
+          <Text style={styles.progressCardTitle}>📈 Complete Profile Setup</Text>
+          <Text style={styles.progressPercent}>80% Completed</Text>
+        </View>
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: '80%' }]} />
+        </View>
+        <Text style={styles.progressTip}>Almost done! Add work history to secure gigs 3x faster.</Text>
+      </View>
+
       <View style={styles.statsGrid}>
         <View style={styles.statBoxLarge}>
           <Ionicons name="briefcase" size={24} color={Colors.saffron} />
@@ -240,14 +280,155 @@ export default function ProfileScreen() {
     </Animated.View>
   );
 
+  // --- Render Functions (Provider) ---
+
+  const renderCompanyOverview = () => (
+    <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      <View style={styles.statsGrid}>
+        <View style={styles.statBoxLarge}>
+          <Ionicons name="flash-outline" size={24} color={Colors.saffron} />
+          <Text style={styles.statBoxLargeVal}>94%</Text>
+          <Text style={styles.statBoxLargeLbl}>Response Rate</Text>
+        </View>
+        <View style={styles.statBoxLarge}>
+          <Ionicons name="checkmark-circle-outline" size={24} color={Colors.green} />
+          <Text style={styles.statBoxLargeVal}>GSTIN</Text>
+          <Text style={styles.statBoxLargeLbl}>Verified Account</Text>
+        </View>
+      </View>
+
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Business details</Text>
+        </View>
+
+        {[
+          { icon: 'business-outline', label: 'Company Name', value: companyName, editable: true, onEdit: setCompanyName },
+          { icon: 'grid-outline', label: 'Industry Sector', value: businessCategory, editable: true, onEdit: setBusinessCategory },
+          { icon: 'location-outline', label: 'Headquarters', value: branchLocation, editable: true, onEdit: setBranchLocation },
+          { icon: 'ribbon-outline', label: 'GSTIN Registration', value: gstin, editable: true, onEdit: setGstin, note: 'Taxes auto-deducted' },
+        ].map((row, idx) => (
+          <View key={idx} style={[styles.infoRow, idx === 3 && { borderBottomWidth: 0 }]}>
+            <View style={styles.infoIconBox}>
+              <Ionicons name={row.icon as any} size={18} color={Colors.navy} />
+            </View>
+            <View style={styles.infoContent}>
+              <Text style={styles.infoLabel}>{row.label}</Text>
+              {isEditing && row.editable ? (
+                <TextInput
+                  style={styles.infoInput}
+                  value={row.value}
+                  onChangeText={row.onEdit}
+                  placeholder={`Enter ${row.label.toLowerCase()}`}
+                />
+              ) : (
+                <Text style={styles.infoValue}>{row.value || 'Not provided'}</Text>
+              )}
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={20} color={Colors.red} />
+        <Text style={styles.logoutBtnText}>Logout</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderActiveListingsSummary = () => (
+    <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Posted Gigs (Live Summary)</Text>
+        </View>
+
+        {[
+          { title: 'Delivery Partner Needed', date: 'Posted 2 hours ago', count: '14 Applicants', active: true },
+          { title: 'Warehouse Helper Needed', date: 'Posted Yesterday', count: '3 Applicants', active: true },
+          { title: 'Store Event Host', date: 'Filled 3 days ago', count: '5 Workers Hired', active: false, filled: true },
+        ].map((lst, idx) => (
+          <TouchableOpacity
+            key={idx}
+            style={[styles.listingRowItem, idx === 2 && { borderBottomWidth: 0 }]}
+            onPress={() => router.push('/(tabs)/my-jobs' as any)}
+          >
+            <View style={styles.listingRowContent}>
+              <Text style={styles.listingRowTitle}>{lst.title}</Text>
+              <Text style={styles.listingRowSub}>{lst.date} • <Text style={{ color: Colors.saffron, fontFamily: FontFamily.bodySemiBold }}>{lst.count}</Text></Text>
+            </View>
+            <View style={[
+              styles.seekerBadge,
+              lst.active ? styles.seekerBadgeGreen : styles.seekerBadgeBlue
+            ]}>
+              <Text style={[
+                styles.seekerBadgeText,
+                lst.active ? styles.seekerBadgeTextGreen : styles.seekerBadgeTextBlue
+              ]}>
+                {lst.active ? 'LIVE' : lst.filled ? 'FILLED' : 'CLOSED'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </Animated.View>
+  );
+
+  const renderTeamAndBilling = () => (
+    <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      {/* Recruiter / Managers List */}
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Recruiters & Managers</Text>
+          <TouchableOpacity onPress={() => showToast('Manager invites coming soon!', 'info')}>
+            <Text style={{ color: Colors.saffron, fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm }}>+ Add</Text>
+          </TouchableOpacity>
+        </View>
+
+        {[
+          { name: 'Sai (Owner)', role: 'Administrator', avatar: 'S' },
+          { name: 'Kalyan Dev', role: 'Branch Recruiter', avatar: 'K' },
+        ].map((rec, idx) => (
+          <View key={idx} style={[styles.recruiterRow, idx === 1 && { borderBottomWidth: 0 }]}>
+            <View style={styles.recruiterAvatar}>
+              <Text style={styles.recruiterAvatarText}>{rec.avatar}</Text>
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.recruiterNameText}>{rec.name}</Text>
+              <Text style={styles.recruiterRoleText}>{rec.role}</Text>
+            </View>
+            <Ionicons name="shield-checkmark" size={16} color={Colors.green} />
+          </View>
+        ))}
+      </View>
+
+      {/* Billing summaries */}
+      <View style={styles.sectionCard}>
+        <Text style={styles.sectionTitle}>Payment & Wallet Account</Text>
+        <View style={styles.billingWalletRow}>
+          <View>
+            <Text style={styles.billingWalletLabel}>ESCROW BALANCE</Text>
+            <Text style={styles.billingWalletVal}>₹12,400</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.billingTopupBtn}
+            onPress={() => showToast('Top-up wallet gateway coming soon!', 'info')}
+          >
+            <Text style={styles.billingTopupBtnText}>Top-up ⚡</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Animated.View>
+  );
+
   return (
     <View style={styles.screen}>
-      <Animated.ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         
         {/* Cover Photo */}
         <View style={styles.coverPhoto}>
           <LinearGradient
-            colors={['#1E293B', Colors.navy]}
+            colors={isSeeker ? ['#1E293B', Colors.navy] : [Colors.saffron, '#991B1B']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
@@ -264,18 +445,18 @@ export default function ProfileScreen() {
         {/* Identity & Actions */}
         <View style={styles.identitySection}>
           <View style={styles.avatarWrapper}>
-            <Avatar name={user?.name} size="xl" />
+            <Avatar name={isSeeker ? user?.name : companyName} size="xl" />
             <TouchableOpacity style={styles.camBadge}>
               <Ionicons name="camera" size={16} color={Colors.white} />
             </TouchableOpacity>
           </View>
 
           <View style={styles.nameContainer}>
-            <Text style={styles.identityName}>{user?.name || 'Complete Profile'}</Text>
+            <Text style={styles.identityName}>{isSeeker ? (user?.name || 'Complete Profile') : companyName}</Text>
             {user?.is_verified && <Ionicons name="checkmark-circle" size={22} color={Colors.green} />}
           </View>
           <Text style={styles.identityLocation}>
-            <Ionicons name="location" size={14} color={Colors.gray4} /> {user?.location_name || 'Add Location'}
+            <Ionicons name="location" size={14} color={Colors.gray4} /> {isSeeker ? (user?.location_name || 'Add Location') : branchLocation}
           </Text>
 
           <View style={styles.actionButtonsRow}>
@@ -301,24 +482,41 @@ export default function ProfileScreen() {
         <View style={styles.tabsContainer}>
           <View style={styles.tabsRow}>
             {TABS.map((tab, idx) => (
-              <TouchableOpacity key={tab} style={styles.tabBtn} onPress={() => handleTabPress(idx)}>
+              <TouchableOpacity key={tab} style={[styles.tabBtn, { width: tabWidth }]} onPress={() => handleTabPress(idx)}>
                 <Text style={[styles.tabText, activeTab === idx && styles.tabTextActive]}>{tab}</Text>
               </TouchableOpacity>
             ))}
           </View>
           <View style={styles.tabIndicatorContainer}>
-            <Animated.View style={[styles.tabIndicator, { transform: [{ translateX: tabIndicatorPos }] }]} />
+            <Animated.View style={[
+              styles.tabIndicator,
+              {
+                width: tabWidth,
+                transform: [{ translateX: tabIndicatorPos }],
+                backgroundColor: isSeeker ? Colors.navy : Colors.saffron
+              }
+            ]} />
           </View>
         </View>
 
         {/* Tab Content */}
         <View style={styles.contentWrapper}>
-          {activeTab === 0 && renderOverview()}
-          {activeTab === 1 && renderSkills()}
-          {activeTab === 2 && renderReviews()}
+          {isSeeker ? (
+            <>
+              {activeTab === 0 && renderOverview()}
+              {activeTab === 1 && renderSkills()}
+              {activeTab === 2 && renderReviews()}
+            </>
+          ) : (
+            <>
+              {activeTab === 0 && renderCompanyOverview()}
+              {activeTab === 1 && renderActiveListingsSummary()}
+              {activeTab === 2 && renderTeamAndBilling()}
+            </>
+          )}
         </View>
 
-      </Animated.ScrollView>
+      </ScrollView>
       <BottomNav />
     </View>
   );
@@ -346,12 +544,12 @@ const styles = StyleSheet.create({
   identitySection: {
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    marginTop: -50, // Pulls the avatar up over the cover photo
+    marginTop: -50,
   },
   avatarWrapper: {
     position: 'relative',
     padding: 4,
-    backgroundColor: Colors.background, // Match background to create cutout effect
+    backgroundColor: Colors.background,
     borderRadius: 100,
   },
   camBadge: {
@@ -367,10 +565,10 @@ const styles = StyleSheet.create({
   },
   identityName: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 26, color: Colors.ink,
+    fontSize: 24, color: Colors.ink,
   },
   identityLocation: {
-    fontFamily: FontFamily.body,
+    fontFamily: FontFamily.bodyMedium,
     fontSize: FontSize.md, color: Colors.gray4,
     marginTop: 2, marginBottom: Spacing.lg,
   },
@@ -400,7 +598,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   tabBtn: {
-    width: TAB_WIDTH,
     paddingVertical: 12,
     alignItems: 'center',
   },
@@ -413,8 +610,7 @@ const styles = StyleSheet.create({
     height: 3, width: '100%',
   },
   tabIndicator: {
-    height: '100%', width: TAB_WIDTH,
-    backgroundColor: Colors.navy,
+    height: '100%',
     borderTopLeftRadius: 3, borderTopRightRadius: 3,
   },
   contentWrapper: {
@@ -517,4 +713,164 @@ const styles = StyleSheet.create({
   reviewDate: { fontFamily: FontFamily.body, fontSize: FontSize.xs, color: Colors.gray4 },
   reviewStarsRight: { flexDirection: 'row', gap: 2 },
   reviewText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.ink2, lineHeight: 20 },
+
+  // Provider Specific Styles
+  listingRowItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray1,
+  },
+  listingRowContent: {
+    flex: 1,
+    marginRight: 10,
+  },
+  listingRowTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.md,
+    color: Colors.ink,
+  },
+  listingRowSub: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray4,
+    marginTop: 4,
+  },
+  seekerBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.xs,
+  },
+  seekerBadgeGreen: { backgroundColor: Colors.greenLight },
+  seekerBadgeBlue: { backgroundColor: Colors.blueLight },
+  seekerBadgeText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+  },
+  seekerBadgeTextGreen: { color: Colors.greenDark },
+  seekerBadgeTextBlue: { color: Colors.blueDark },
+  recruiterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray1,
+  },
+  recruiterAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  recruiterAvatarText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.saffronDark,
+  },
+  recruiterNameText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.base,
+    color: Colors.ink,
+  },
+  recruiterRoleText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray4,
+    marginTop: 2,
+  },
+  billingWalletRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.sm,
+    padding: 16,
+    marginTop: 10,
+  },
+  billingWalletLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.gray4,
+    letterSpacing: 0.5,
+  },
+  billingWalletVal: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.navy,
+    marginTop: 2,
+  },
+  billingTopupBtn: {
+    backgroundColor: Colors.saffron,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: Radius.sm,
+  },
+  billingTopupBtnText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.sm,
+    color: Colors.white,
+  },
+  seekerGreetingCard: {
+    paddingHorizontal: 4,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  seekerGreetingText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.ink,
+  },
+  seekerSubText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.md,
+    color: Colors.gray5,
+    marginTop: 2,
+  },
+  seekerProgressCard: {
+    backgroundColor: Colors.white,
+    marginVertical: 12,
+    borderRadius: Radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  progressCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progressCardTitle: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 14,
+    color: Colors.ink,
+  },
+  progressPercent: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.saffron,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: Colors.gray1,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.saffron,
+    borderRadius: 4,
+  },
+  progressTip: {
+    fontFamily: FontFamily.body,
+    fontSize: 11,
+    color: Colors.gray5,
+    lineHeight: 14,
+  },
 });

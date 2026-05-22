@@ -24,23 +24,47 @@ export interface User {
   expo_push_token: string | null;
   created_at: string;
   updated_at: string;
+  
+  // Job Preferences (For Matching Algorithm)
+  expected_salary?: number;
+  preferred_pay_type?: PayType;
+
+  // Trust & Platform Safety Profile
+  rating?: number;
+  completed_jobs?: number;
+  reports?: number;
+  attendance?: number;     // Worker trust signal
+  response_rate?: number;  // Employer trust signal
+  trust_score?: number;    // Pre-calculated global Trust score
 }
 
 // ============ JOB ============
 export type JobCategory =
   | 'delivery'
-  | 'events'
-  | 'shop'
-  | 'construction'
-  | 'restaurant'
-  | 'office'
-  | 'cleaning'
-  | 'security'
   | 'driver'
-  | 'tech'
-  | 'salon'
-  | 'tutor'
-  | 'others';
+  | 'warehouse'
+  | 'construction'
+  | 'cleaning'
+  | 'cooking'
+  | 'security'
+  | 'shop_helper'
+  | 'office_assistant'
+  | 'electrician'
+  | 'plumber'
+  | 'mechanic'
+  | 'painter'
+  | 'carpenter'
+  | 'event_staff'
+  | 'hotel_staff'
+  | 'restaurant_staff'
+  | 'factory_worker'
+  | 'household_work'
+  | 'gardening'
+  | 'caregiver'
+  | 'technician'
+  | 'sales_promoter'
+  | 'loading_unloading'
+  | 'other';
 
 export type PayType = 'hour' | 'day' | 'month';
 export type JobStatus = 'live' | 'paused' | 'filled' | 'deleted';
@@ -79,26 +103,59 @@ export interface Job {
   // ── Work classification ──
   work_type?: WorkType;
   skill_level?: SkillLevel;
+  required_skills?: string[];
+  gender_preference?: 'male' | 'female' | 'any';
+  joining_date?: string;
 
   // ── Pay & Benefits ──
   payment_schedule?: PaymentSchedule;
   food_included?: boolean;
   stay_included?: boolean;
   travel_allowance?: boolean;
+  same_day_payment?: boolean;
+  overtime_available?: boolean;
+  salary_negotiable?: boolean;
+  pf_esi_included?: boolean;
 
-  // ── Communication ──
+  // ── Communication & Visibility ──
   language_pref?: string;     // "Telugu, Hindi"
   contact_phone?: string;     // shown only if show_phone = true
+  contact_method?: 'in_app_chat' | 'phone_call' | 'whatsapp';
+  visibility?: 'public' | 'private';
+  experience_required?: string;
+  working_days_per_week?: number;
 
   // ── Joined fields from API ──
   poster_name?: string;
   poster_rating?: number;
   poster_avatar?: string | null;
+  
+  // ── Trust & Ranking Algorithm (Platform Safety) ──
+  employer_trust_score?: number; // Pre-calculated trust score from database
+  employer_completed_jobs?: number;
+  employer_verified?: boolean;
+  employer_reports?: number;
+  employer_response_rate?: number;
+
+  // ── Search Optimization (FTS) ──
+  search_vector?: string; // Pre-computed PostgreSQL Full Text Search vector
+  
   distance_km?: number;
 }
 
 export interface JobWithPoster extends Job {
   poster: User;
+}
+
+// ============ REVIEW / TRUST ============
+export interface Review {
+  id: string;
+  job_id: string;
+  reviewer_id: string;
+  target_user_id: string;
+  rating: number; // 1 to 5
+  review: string;
+  created_at: string;
 }
 
 // ============ APPLICATION ============
@@ -211,6 +268,17 @@ export interface PostJobForm {
   stay_included?: boolean;
   travel_allowance?: boolean;
   language_pref?: string;
+  required_skills?: string[];
+  gender_preference?: 'male' | 'female' | 'any';
+  joining_date?: string;
+  same_day_payment?: boolean;
+  overtime_available?: boolean;
+  salary_negotiable?: boolean;
+  pf_esi_included?: boolean;
+  contact_method?: 'in_app_chat' | 'phone_call' | 'whatsapp';
+  visibility?: 'public' | 'private';
+  experience_required?: string;
+  working_days_per_week?: number;
 }
 
 export interface ProfileForm {

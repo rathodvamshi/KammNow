@@ -8,20 +8,39 @@ import {
 } from 'react-native';
 import { router, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, FontFamily, FontSize } from '../../theme';
+import { Colors, FontFamily, FontSize, Shadow, Radius } from '../../theme';
 import { useUIStore } from '../../store/uiStore';
 
-const NAV_ITEMS = [
+interface NavItem {
+  icon?: string;
+  iconActive?: string;
+  label?: string;
+  href: string;
+  isPost?: boolean;
+  badge?: boolean;
+}
+
+const SEEKER_NAV_ITEMS: NavItem[] = [
   { icon: 'home-outline', iconActive: 'home', label: 'Home', href: '/(tabs)/' },
+  { icon: 'search-outline', iconActive: 'search', label: 'Search', href: '/search' },
+  { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'My Gigs', href: '/(tabs)/my-jobs' },
   { icon: 'mail-outline', iconActive: 'mail', label: 'Inbox', href: '/(tabs)/inbox', badge: true },
-  { isPost: true, href: '/job/post' },
-  { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'My Jobs', href: '/(tabs)/my-jobs' },
   { icon: 'person-outline', iconActive: 'person', label: 'Profile', href: '/(tabs)/profile' },
+];
+
+const PROVIDER_NAV_ITEMS: NavItem[] = [
+  { icon: 'grid-outline', iconActive: 'grid', label: 'Dashboard', href: '/(tabs)/' },
+  { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'Gigs', href: '/(tabs)/my-jobs' },
+  { isPost: true, href: '/job/post' },
+  { icon: 'mail-outline', iconActive: 'mail', label: 'Inbox', href: '/(tabs)/inbox', badge: true },
+  { icon: 'business-outline', iconActive: 'business', label: 'Business', href: '/(tabs)/profile' },
 ];
 
 export const BottomNav: React.FC = () => {
   const pathname = usePathname();
-  const { inboxBadgeCount } = useUIStore();
+  const { inboxBadgeCount, currentRole } = useUIStore();
+
+  const NAV_ITEMS = currentRole === 'seeker' ? SEEKER_NAV_ITEMS : PROVIDER_NAV_ITEMS;
 
   const isActive = (href: string) => {
     if (href === '/(tabs)/') return pathname === '/' || pathname === '/(tabs)';
@@ -29,88 +48,104 @@ export const BottomNav: React.FC = () => {
   };
 
   return (
-    <View style={styles.nav}>
-      {NAV_ITEMS.map((item, index) => {
-        if (item.isPost) {
+    <View style={styles.navContainer}>
+      <View style={styles.nav}>
+        {NAV_ITEMS.map((item, index) => {
+          if (item.isPost) {
+            return (
+              <TouchableOpacity
+                key="post-job"
+                style={styles.postBtnContainer}
+                onPress={() => router.push(item.href as any)}
+                activeOpacity={0.9}
+              >
+                <View style={styles.postBtn}>
+                  <Ionicons name="add" size={32} color={Colors.white} />
+                </View>
+              </TouchableOpacity>
+            );
+          }
+
+          const active = isActive(item.href!);
           return (
             <TouchableOpacity
-              key="post-job"
-              style={styles.postBtnContainer}
+              key={item.href}
+              style={styles.item}
               onPress={() => router.push(item.href as any)}
-              activeOpacity={0.85}
+              activeOpacity={0.7}
             >
-              <View style={styles.postBtn}>
-                <Ionicons name="add" size={34} color={Colors.white} />
+              <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+                <Ionicons
+                  name={active ? (item.iconActive as any) : (item.icon as any)}
+                  size={21}
+                  color={active ? Colors.saffron : Colors.gray5}
+                />
+                {item.badge && inboxBadgeCount > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {inboxBadgeCount > 9 ? '9+' : inboxBadgeCount}
+                    </Text>
+                  </View>
+                )}
               </View>
+              <Text style={[styles.label, active && styles.labelActive]}>
+                {item.label}
+              </Text>
             </TouchableOpacity>
           );
-        }
-
-        const active = isActive(item.href!);
-        return (
-          <TouchableOpacity
-            key={item.href}
-            style={styles.item}
-            onPress={() => router.push(item.href as any)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.iconWrap}>
-              <Ionicons
-                name={active ? (item.iconActive as any) : (item.icon as any)}
-                size={24}
-                color={active ? Colors.saffron : Colors.gray4}
-              />
-              {item.badge && inboxBadgeCount > 0 && (
-                <View style={styles.badge}>
-                  <Text style={styles.badgeText}>
-                    {inboxBadgeCount > 9 ? '9+' : inboxBadgeCount}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text style={[styles.label, active && styles.labelActive]}>
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+        })}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
+  navContainer: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    backgroundColor: 'transparent',
+  },
   nav: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
     backgroundColor: Colors.white,
-    borderTopWidth: 1,
-    borderTopColor: Colors.gray1,
-    position: 'relative',
-    // Premium shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 16,
+    borderRadius: Radius.xl, // 24pt rounded edges
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    // Multi-layered depth shadow to make it float seamlessly
+    shadowColor: Colors.navy,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 12,
   },
   item: {
     flex: 1,
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
+    paddingVertical: 4,
   },
   iconWrap: {
-    position: 'relative',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 26,
+    backgroundColor: 'transparent',
+    position: 'relative',
+    marginBottom: 2,
+  },
+  iconWrapActive: {
+    backgroundColor: Colors.saffronLight, // Soft glowing brand orange capsule
   },
   label: {
     fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.xs,
-    color: Colors.gray4,
+    fontSize: 10,
+    color: Colors.inkSubtle,
+    letterSpacing: -0.1,
   },
   labelActive: {
     color: Colors.saffron,
@@ -118,43 +153,39 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: -4,
-    right: -8,
+    top: 4,
+    right: 4,
     backgroundColor: Colors.red,
-    width: 16,
+    minWidth: 16,
     height: 16,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: Colors.white,
+    paddingHorizontal: 3,
   },
   badgeText: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 9,
+    fontSize: 8,
     color: Colors.white,
+    lineHeight: 11,
   },
   postBtnContainer: {
-    flex: 1,
+    width: 60,
     alignItems: 'center',
     justifyContent: 'center',
   },
   postBtn: {
-    width: 58,
-    height: 58,
+    width: 52,
+    height: 52,
     backgroundColor: Colors.saffron,
-    borderRadius: 29,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    // Elevated to sit above the navbar
-    marginTop: -38,
+    marginTop: -32, // Floats premiumly above the floating bar
     borderWidth: 4,
     borderColor: Colors.white,
-    // Intense saffron shadow for premium look
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 8,
+    ...Shadow.saffron,
   },
 });

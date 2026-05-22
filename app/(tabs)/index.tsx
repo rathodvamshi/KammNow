@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   TextInput,
   RefreshControl,
@@ -15,10 +16,13 @@ import {
   Linking,
   Platform,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ExpoLocation from 'expo-location';
+import { useQuery } from '@tanstack/react-query';
 import { Colors, FontFamily, FontSize, Spacing, Radius, Shadow } from '../../src/theme';
 import { BottomNav } from '../../src/components/organisms/BottomNav';
 import { JobCard } from '../../src/components/molecules/JobCard';
@@ -31,12 +35,14 @@ import { useAddressStore } from '../../src/store/addressStore';
 import { LocationPromptBottomSheet } from '../../src/components/organisms/LocationPromptBottomSheet';
 import { reverseGeocode } from '../../src/utils/geocoding';
 
-import { MOCK_JOBS } from '../../src/services/mockData';
+import { MOCK_JOBS, MOCK_USER } from '../../src/services/mockData';
 import { formatDistance, haversineDistance } from '../../src/utils/helpers';
 import type { Job, JobCategory } from '../../src/types';
 import { CategorySection, CategoryItem } from '../../src/components/molecules/CategorySection';
 import { FilterBar } from '../../src/components/molecules/FilterBar';
 import { useFilterStore } from '../../src/store/filterStore';
+import { fetchRecommendedJobs } from '../../src/services/api';
+import { RoleSwitcher } from '../../src/components/atoms/RoleSwitcher';
 
 const LANGUAGES = [
   { key: 'en' as const, label: 'English', glyph: 'A', native: 'EN', sub: 'English' },
@@ -45,20 +51,33 @@ const LANGUAGES = [
 ];
 
 const CATEGORIES: CategoryItem[] = [
-  { id: 'all', name: 'All Gigs', iconName: 'grid-outline', bgColor: '#E3F2FD', iconColor: '#1E88E5' },
+  { id: 'all', name: 'Gigs', iconName: 'grid-outline', bgColor: '#E3F2FD', iconColor: '#1E88E5' },
   { id: 'urgent', name: 'Urgent', iconName: 'flash-outline', bgColor: '#FFF8E1', iconColor: '#FFB300', badge: 'HOT' },
-  { id: 'delivery', name: 'Delivery', iconName: 'bicycle-outline', bgColor: '#FFF3E0', iconColor: '#F57C00', badge: 'FAST' },
-  { id: 'events', name: 'Event Crew', iconName: 'sparkles-outline', bgColor: '#F3E5F5', iconColor: '#8E24AA', badge: 'NEW' },
-  { id: 'shop', name: 'Shop Help', iconName: 'storefront-outline', bgColor: '#E8F5E9', iconColor: '#43A047' },
-  { id: 'construction', name: 'Labour', iconName: 'hammer-outline', bgColor: '#EFEBE9', iconColor: '#6D4C41' },
-  { id: 'restaurant', name: 'Restaurant', iconName: 'fast-food-outline', bgColor: '#FFEBEE', iconColor: '#E53935' },
-  { id: 'office', name: 'Office Help', iconName: 'desktop-outline', bgColor: '#E0F7FA', iconColor: '#00ACC1' },
-  { id: 'cleaning', name: 'House Help', iconName: 'brush-outline', bgColor: '#FFFDE7', iconColor: '#FBC02D' },
+  { id: 'delivery', name: 'Delivery', iconName: 'bicycle-outline', bgColor: '#FFF3E0', iconColor: '#F57C00' },
+  { id: 'driver', name: 'Driver', iconName: 'car-outline', bgColor: '#E0F2F1', iconColor: '#00695C' },
+  { id: 'warehouse', name: 'Warehouse', iconName: 'cube-outline', bgColor: '#FBE9E7', iconColor: '#D84315' },
+  { id: 'construction', name: 'Construction', iconName: 'hammer-outline', bgColor: '#EFEBE9', iconColor: '#6D4C41' },
+  { id: 'cleaning', name: 'Cleaning', iconName: 'brush-outline', bgColor: '#FFFDE7', iconColor: '#FBC02D' },
+  { id: 'cooking', name: 'Cooking', iconName: 'restaurant-outline', bgColor: '#FCE4EC', iconColor: '#C2185B' },
   { id: 'security', name: 'Security', iconName: 'shield-checkmark-outline', bgColor: '#ECEFF1', iconColor: '#37474F' },
-  { id: 'driver', name: 'Drivers', iconName: 'car-outline', bgColor: '#E0F2F1', iconColor: '#00695C', badge: 'DRIVE' },
-  { id: 'tech', name: 'Tech Help', iconName: 'code-slash-outline', bgColor: '#EDE7F6', iconColor: '#5E35B1' },
-  { id: 'salon', name: 'Salon Care', iconName: 'cut-outline', bgColor: '#FCE4EC', iconColor: '#C2185B', badge: 'PRO' },
-  { id: 'tutor', name: 'Tutors', iconName: 'book-outline', bgColor: '#F1F8E9', iconColor: '#558B2F' },
+  { id: 'shop_helper', name: 'Shop', iconName: 'storefront-outline', bgColor: '#E8F5E9', iconColor: '#43A047' },
+  { id: 'office_assistant', name: 'Office', iconName: 'desktop-outline', bgColor: '#E0F7FA', iconColor: '#00ACC1' },
+  { id: 'electrician', name: 'Electrician', iconName: 'flash-outline', bgColor: '#FFF8E1', iconColor: '#FBC02D' },
+  { id: 'plumber', name: 'Plumber', iconName: 'water-outline', bgColor: '#E3F2FD', iconColor: '#1976D2' },
+  { id: 'mechanic', name: 'Mechanic', iconName: 'construct-outline', bgColor: '#ECEFF1', iconColor: '#546E7A' },
+  { id: 'painter', name: 'Painter', iconName: 'color-palette-outline', bgColor: '#F3E5F5', iconColor: '#8E24AA' },
+  { id: 'carpenter', name: 'Carpenter', iconName: 'cut-outline', bgColor: '#EFEBE9', iconColor: '#8D6E63' },
+  { id: 'event_staff', name: 'Events', iconName: 'sparkles-outline', bgColor: '#F3E5F5', iconColor: '#8E24AA' },
+  { id: 'hotel_staff', name: 'Hotel', iconName: 'bed-outline', bgColor: '#E8EAF6', iconColor: '#558B2F' },
+  { id: 'restaurant_staff', name: 'Food', iconName: 'fast-food-outline', bgColor: '#FFEBEE', iconColor: '#E53935' },
+  { id: 'factory_worker', name: 'Factory', iconName: 'business-outline', bgColor: '#ECEFF1', iconColor: '#455A64' },
+  { id: 'household_work', name: 'Household', iconName: 'home-outline', bgColor: '#E8F5E9', iconColor: '#2E7D32' },
+  { id: 'gardening', name: 'Gardening', iconName: 'leaf-outline', bgColor: '#F1F8E9', iconColor: '#33691E' },
+  { id: 'caregiver', name: 'Caregiver', iconName: 'heart-outline', bgColor: '#FCE4EC', iconColor: '#D81B60' },
+  { id: 'technician', name: 'Tech', iconName: 'hardware-chip-outline', bgColor: '#E8EAF6', iconColor: '#3F51B5' },
+  { id: 'sales_promoter', name: 'Sales', iconName: 'megaphone-outline', bgColor: '#FFF3E0', iconColor: '#EF6C00' },
+  { id: 'loading_unloading', name: 'Cargo', iconName: 'cart-outline', bgColor: '#FFF8E1', iconColor: '#F57F17' },
+  { id: 'other', name: 'Other', iconName: 'ellipsis-horizontal-outline', bgColor: '#FAFAFA', iconColor: '#616161' },
 ];
 
 const PAGE_LIMIT = 10;
@@ -107,17 +126,219 @@ const AnimatedPlaceholder = ({ active }: { active: boolean }) => {
   );
 };
 
+interface ApplicationStep {
+  label: string;
+  status: 'completed' | 'active' | 'pending';
+  date: string;
+  iconName: string;
+}
+
+interface ActiveApplication {
+  id: string;
+  title: string;
+  company: string;
+  pay: string;
+  statusText: string;
+  statusType: 'interview' | 'review' | 'offer';
+  steps: ApplicationStep[];
+  alertIcon: string;
+  alertTitle: string;
+  alertText: string;
+  ctaText: string;
+  ctaAction: string;
+  hasActionBadge?: boolean;
+}
+
+const MOCK_ACTIVE_APPLICATIONS: ActiveApplication[] = [
+  {
+    id: 'app-1',
+    title: 'Event Staff Crew',
+    company: 'QuickMart Ameerpet',
+    pay: '₹500/day',
+    statusText: 'Interview Scheduled',
+    statusType: 'interview',
+    steps: [
+      { label: 'Applied', status: 'completed', date: 'May 20', iconName: 'document-text-outline' },
+      { label: 'Reviewed', status: 'completed', date: 'May 21', iconName: 'eye-outline' },
+      { label: 'Interview', status: 'active', date: 'Tomorrow', iconName: 'calendar-outline' },
+      { label: 'Offer', status: 'pending', date: '--', iconName: 'award-outline' },
+    ],
+    alertIcon: 'calendar-outline',
+    alertTitle: 'Interview Details',
+    alertText: 'Tomorrow, 10:00 AM at store premises. Please bring a copy of your resume and ID proof.',
+    ctaText: 'Get Interview Directions',
+    ctaAction: 'directions',
+  },
+  {
+    id: 'app-2',
+    title: 'Delivery Associate',
+    company: 'Gati Logistics',
+    pay: '₹700/day',
+    statusText: 'Under Review',
+    statusType: 'review',
+    steps: [
+      { label: 'Applied', status: 'completed', date: 'May 18', iconName: 'document-text-outline' },
+      { label: 'Reviewed', status: 'active', date: 'May 19', iconName: 'eye-outline' },
+      { label: 'Interview', status: 'pending', date: '--', iconName: 'call-outline' },
+      { label: 'Offer', status: 'pending', date: '--', iconName: 'award-outline' },
+    ],
+    alertIcon: 'call-outline',
+    alertTitle: 'Recruiter Screening',
+    alertText: 'Your profile has been shortlisted. The hiring coordinator will contact you for a brief phone screening.',
+    ctaText: 'Call Recruiter Office',
+    ctaAction: 'call',
+  },
+  {
+    id: 'app-3',
+    title: 'Store Helper',
+    company: 'D-Mart Ameerpet',
+    pay: '₹450/day',
+    statusText: 'Offer Received',
+    statusType: 'offer',
+    steps: [
+      { label: 'Applied', status: 'completed', date: 'May 15', iconName: 'document-text-outline' },
+      { label: 'Reviewed', status: 'completed', date: 'May 16', iconName: 'eye-outline' },
+      { label: 'Interview', status: 'completed', date: 'May 17', iconName: 'people-outline' },
+      { label: 'Offer', status: 'active', date: 'May 18', iconName: 'gift-outline' },
+    ],
+    alertIcon: 'gift-outline',
+    alertTitle: 'Job Offer Details',
+    alertText: 'Congratulations! You have received a formal gig offer. Accept below to confirm your start date.',
+    ctaText: 'Accept Offer & Start',
+    ctaAction: 'accept',
+    hasActionBadge: true,
+  },
+];
+
+// Staggered premium entrance animation card
+const StaggeredCard = React.memo(({ children, index, style, activeOpacity, onPress }: {
+  children: React.ReactNode;
+  index: number;
+  style: any;
+  activeOpacity: number;
+  onPress: () => void;
+}) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const translateYAnim = useRef(new Animated.Value(20)).current;
+  const scaleAnim = useRef(new Animated.Value(0.92)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 400,
+        delay: Math.min(index * 90, 450),
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateYAnim, {
+        toValue: 0,
+        friction: 7,
+        tension: 55,
+        delay: Math.min(index * 90, 450),
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 7,
+        tension: 55,
+        delay: Math.min(index * 90, 450),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [index]);
+
+  return (
+    <Animated.View
+      style={{
+        opacity: fadeAnim,
+        transform: [
+          { translateY: translateYAnim },
+          { scale: scaleAnim }
+        ],
+      }}
+    >
+      <TouchableOpacity
+        activeOpacity={activeOpacity}
+        onPress={onPress}
+        style={style}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+});
+
 export default function HomeScreen() {
   const { user } = useAuthStore();
   const { lat, lng, locationName } = useLocationStore();
-  const { language, setLanguage } = useUIStore();
+  const { language, setLanguage, currentRole } = useUIStore();
   const { savedAddresses, getActive, isLoaded, loadFromStorage } = useAddressStore();
+
+  // ── Scroll-driven animations ──────────────────────────────────────────────
+  const { height: windowHeight } = useWindowDimensions();
+  const mainScrollViewRef = useRef<ScrollView>(null);
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const lastScrollY = useRef(0);
+  const navTranslateY = useRef(new Animated.Value(0)).current;
+  const isNavHiddenRef = useRef(false);
+  // Height of the banner (measured on layout)
+  const bannerHeight = useRef(0);
+
+  // Dynamic header stuck tracking for sizing transitions
+  const [stickyHeaderY, setStickyHeaderY] = useState(380);
+  const isHeaderStuckRef = useRef(false);
+  const [isHeaderStuck, setIsHeaderStuck] = useState(false);
+
+  const BOTTOM_NAV_HEIGHT = Platform.OS === 'ios' ? 82 : 62;
+
+  const [activeViewRole, setActiveViewRole] = useState(currentRole);
+  const roleFade = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.timing(roleFade, {
+      toValue: 0,
+      duration: 100,
+      useNativeDriver: true,
+    }).start(() => {
+      setActiveViewRole(currentRole);
+      Animated.timing(roleFade, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [currentRole]);
 
   const [showLangModal, setShowLangModal] = useState(false);
   const modalAnim = useRef(new Animated.Value(0)).current;
 
+  const [showTrackerModal, setShowTrackerModal] = useState(false);
+  const trackerModalAnim = useRef(new Animated.Value(0)).current;
+  const [activeAppIndex, setActiveAppIndex] = useState(0);
+
+  const openTrackerModal = () => {
+    setShowTrackerModal(true);
+    Animated.timing(trackerModalAnim, {
+      toValue: 1,
+      duration: 250,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeTrackerModal = () => {
+    Animated.timing(trackerModalAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowTrackerModal(false);
+    });
+  };
+
   const [showPromptSheet, setShowPromptSheet] = useState(false);
   const [promptSheetMode, setPromptSheetMode] = useState<'gps_off' | 'permission_needed'>('gps_off');
+
+  const [searchQuery, setSearchQuery] = useState('');
 
   const checkLocationLifecycle = async () => {
     try {
@@ -211,6 +432,7 @@ export default function HomeScreen() {
 
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [page, setPage] = useState(1);
+  const [radiusKm, setRadiusKm] = useState(10); // default 10 km radius
 
   // ── Filter store (sort + pay type) ──────────────────────────────────────────
   const {
@@ -267,10 +489,66 @@ export default function HomeScreen() {
 
   const activeAddr = getActive();
 
+  // ── Live radar pulse animation loop ──
+  const radarPulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(radarPulse, {
+        toValue: 1,
+        duration: 2200,
+        useNativeDriver: true,
+      })
+    ).start();
+  }, [radarPulse]);
+
+  // Interpolated scaling and opacity for dual rings
+  const pulseScale1 = radarPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.8],
+  });
+  const pulseOpacity1 = radarPulse.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.6, 0.3, 0],
+  });
+
+  const pulseScale2 = radarPulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 2.5],
+  });
+  const pulseOpacity2 = radarPulse.interpolate({
+    inputRange: [0, 0.4, 0.8, 1],
+    outputRange: [0.4, 0.3, 0.1, 0],
+  });
+
+  const liveDotOpacity = radarPulse.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.4, 1, 0.4],
+  });
+
+  // Assembly of full detailed location details on a single line
+  const completeAddress = useMemo(() => {
+    if (activeAddr) {
+      const parts = [
+        activeAddr.flatHouse,
+        activeAddr.floor ? `${activeAddr.floor}F` : null,
+        activeAddr.street,
+        activeAddr.area,
+        activeAddr.landmark ? `nr ${activeAddr.landmark}` : null,
+        activeAddr.city,
+        activeAddr.pincode
+      ].filter(Boolean);
+
+      const labelSymbol = activeAddr.label === 'home' ? '🏠 Home' : activeAddr.label === 'work' ? '💼 Work' : '📍 ' + activeAddr.label.toUpperCase();
+      return `${labelSymbol} • ${parts.join(', ')}`;
+    }
+    return `📍 ${locationName ?? 'Ameerpet, Hyderabad'}`;
+  }, [activeAddr, locationName]);
+
   const userLat = lat ?? 17.4344;
   const userLng = lng ?? 78.4497;
 
-  // Dynamic skill matching for categories (memoized to maintain list reference and prevent scroll resets)
+  // Dynamic skill matching for categories
   const dynamicCategories = useMemo(() => {
     return CATEGORIES.map(cat => {
       const userSkills = user?.skills ?? [];
@@ -287,53 +565,66 @@ export default function HomeScreen() {
     });
   }, [user?.skills]);
 
-  // Calculate the suggested jobs for Raju based on his skills
-  const suggestedJobs = useMemo(() => {
-    const userSkills = user?.skills ?? [];
-    return MOCK_JOBS
-      .map((job) => ({
-        ...job,
-        distance_km: haversineDistance(userLat, userLng, job.location_lat, job.location_lng),
-      }))
-      .filter((job) => {
-        if (job.status !== 'live') return false;
-        return userSkills.some(skill =>
-          job.category.toLowerCase().includes(skill.toLowerCase()) ||
-          skill.toLowerCase().includes(job.category.toLowerCase()) ||
-          job.title.toLowerCase().includes(skill.toLowerCase()) ||
-          skill.toLowerCase().includes(job.title.toLowerCase())
-        );
-      })
-      .sort((a, b) => a.distance_km - b.distance_km);
-  }, [user?.skills, userLat, userLng]);
+  // React Query for matching engine
+  const { isPending: isLoadingJobs, error, data: jobsData, refetch } = useQuery({
+    queryKey: ['recommendedJobs', userLat, userLng, sortBy, payTypeFilter, selectedCategory, user, searchQuery],
+    queryFn: () => {
+      // In a real app we'd get the user from auth state
+      const matchingParams = {
+        user: MOCK_USER,
+        location: { latitude: userLat, longitude: userLng },
+        category: selectedCategory === 'all' ? undefined : selectedCategory,
+        searchTerm: searchQuery, // Passing search query to Trigger FTS search matching
+        filters: {
+          sort_by: sortBy === 'pay' ? 'pay_high_to_low' : sortBy === 'distance' ? 'distance' : 'date_posted',
+          min_pay: undefined,
+        },
+      };
+      return fetchRecommendedJobs(matchingParams as any); // Type cast due to simplified properties
+    },
+    // Don't run query if location relies on it
+    enabled: true,
+  });
 
-  const filteredJobs = MOCK_JOBS
-    .map((job) => ({
-      ...job,
-      distance_km: haversineDistance(userLat, userLng, job.location_lat, job.location_lng),
-    }))
-    .filter((job) => {
-      // Category filter
-      if (selectedCategory === 'urgent') return job.is_urgent;
-      if (selectedCategory !== 'all' && job.category !== selectedCategory) return false;
-      // Pay type filter
-      if (payTypeFilter !== 'all' && job.pay_type !== payTypeFilter) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'distance') return a.distance_km - b.distance_km;
-      if (sortBy === 'pay') return b.pay_amount - a.pay_amount;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-    });
+  // Calculate matching jobs count based on filter matches, not display count.
+  useEffect(() => {
+    // If needed, handle filter count matching
+  }, [jobsData]);
+
+  const processedJobs = jobsData || [];
+
+  // Constant suggestions regardless of selected category
+  const suggestedJobs = useMemo(() => {
+    return MOCK_JOBS.slice(0, 4);
+  }, []);
+
+  // Filter by radius then apply pagination
+  const filteredJobs = useMemo(() => {
+    return processedJobs.filter((job: any) =>
+      job.distance_km == null || job.distance_km <= radiusKm
+    );
+  }, [processedJobs, radiusKm]);
 
   const totalPages = Math.ceil(filteredJobs.length / PAGE_LIMIT);
   const paginatedJobs = filteredJobs.slice((page - 1) * PAGE_LIMIT, page * PAGE_LIMIT);
 
+  const scrollContainerMinHeight = useMemo(() => {
+    const isSearchOrEmpty = filteredJobs.length === 0;
+    if (isSearchOrEmpty && !isLoadingJobs) {
+      if (isHeaderStuck) {
+        return stickyHeaderY + windowHeight - BOTTOM_NAV_HEIGHT;
+      } else {
+        return windowHeight - BOTTOM_NAV_HEIGHT - 20;
+      }
+    }
+    return windowHeight + (stickyHeaderY > 0 ? stickyHeaderY : 300) + 100;
+  }, [filteredJobs.length, isLoadingJobs, isHeaderStuck, stickyHeaderY, windowHeight, BOTTOM_NAV_HEIGHT]);
+
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await new Promise((r) => setTimeout(r, 800));
+    await refetch();
     setIsRefreshing(false);
-  }, []);
+  }, [refetch]);
 
   const greetingIcon = () => {
     const h = new Date().getHours();
@@ -343,18 +634,7 @@ export default function HomeScreen() {
 
 
 
-  // ── Scroll-driven animations ──────────────────────────────────────────────
-  const scrollY = useRef(new Animated.Value(0)).current;
-  const lastScrollY = useRef(0);
-  const navTranslateY = useRef(new Animated.Value(0)).current;
-  // Height of the banner (measured on layout)
-  const bannerHeight = useRef(0);
-  // Whether category bar is currently stuck
-  const categoryStuck = useRef(false);
-  const [catBarTop, setCatBarTop] = useState(0); // px from top of scroll content
 
-  const BOTTOM_NAV_HEIGHT = Platform.OS === 'ios' ? 82 : 62;
-  const CATEGORY_BAR_HEIGHT = 82; // approximate
 
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -364,27 +644,45 @@ export default function HomeScreen() {
         const y = e.nativeEvent.contentOffset.y;
         const dy = y - lastScrollY.current;
 
-        // Hide nav on scroll down, show on scroll up
+        // Hide nav on scroll down, show on scroll up (with stability guards to prevent animation bridges flooding)
         if (dy > 4 && y > 60) {
-          Animated.spring(navTranslateY, {
-            toValue: BOTTOM_NAV_HEIGHT,
-            useNativeDriver: true,
-            friction: 10,
-            tension: 80,
-          }).start();
+          if (!isNavHiddenRef.current) {
+            isNavHiddenRef.current = true;
+            Animated.spring(navTranslateY, {
+              toValue: BOTTOM_NAV_HEIGHT,
+              useNativeDriver: true,
+              friction: 10,
+              tension: 80,
+            }).start();
+          }
         } else if (dy < -4) {
-          Animated.spring(navTranslateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            friction: 10,
-            tension: 80,
-          }).start();
+          if (isNavHiddenRef.current) {
+            isNavHiddenRef.current = false;
+            Animated.spring(navTranslateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              friction: 10,
+              tension: 80,
+            }).start();
+          }
+        }
+
+        // Dynamically track stuck state for categories size transitions
+        const stuck = y >= stickyHeaderY - 2;
+        if (stuck !== isHeaderStuckRef.current) {
+          isHeaderStuckRef.current = stuck;
+          setIsHeaderStuck(stuck);
         }
 
         lastScrollY.current = y;
       },
     }
   );
+
+  const handleSelectCategory = useCallback((id: string) => {
+    setSelectedCategory(id);
+    setPage(1);
+  }, []);
 
   const renderFooter = () => (
     <PaginationBar
@@ -396,16 +694,20 @@ export default function HomeScreen() {
     />
   );
 
-  const renderEmpty = () => (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyIcon}>🔍</Text>
-      <Text style={styles.emptyTitle}>No jobs found nearby</Text>
-      <Text style={styles.emptySub}>Try changing filters or search terms</Text>
-      <TouchableOpacity style={styles.clearBtn} onPress={() => setSelectedCategory('all')}>
-        <Text style={styles.clearBtnText}>Clear Filters</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const renderEmpty = () => {
+    // Calculate remaining screen space dynamically to center empty state below header
+    const emptyHeight = windowHeight - (isHeaderStuck ? 130 : 380) - BOTTOM_NAV_HEIGHT - 40;
+    return (
+      <View style={[styles.emptyState, { minHeight: Math.max(emptyHeight, 300), justifyContent: 'center' }]}>
+        <Text style={styles.emptyIcon}>🔍</Text>
+        <Text style={styles.emptyTitle}>No jobs found nearby</Text>
+        <Text style={styles.emptySub}>Try changing filters or search terms</Text>
+        <TouchableOpacity style={styles.clearBtn} onPress={() => setSelectedCategory('all')}>
+          <Text style={styles.clearBtnText}>Clear Filters</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <View style={styles.screen}>
@@ -413,10 +715,14 @@ export default function HomeScreen() {
 
       {/* ── Single scrollable surface ── */}
       <Animated.ScrollView
+        ref={mainScrollViewRef}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: BOTTOM_NAV_HEIGHT + 20 }}
+        contentContainerStyle={{
+          paddingBottom: BOTTOM_NAV_HEIGHT + 40,
+          minHeight: scrollContainerMinHeight,
+        }}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -425,162 +731,412 @@ export default function HomeScreen() {
             colors={[Colors.saffron]}
           />
         }
-        // Sticky index: 2 = premium sticky header (index 0 = banner, index 1 = suggestions)
-        stickyHeaderIndices={[2]}
+        // Sticky: child[2] = sticky header for seeker mode
+        stickyHeaderIndices={activeViewRole === 'seeker' ? [2] : undefined}
       >
-        {/* ── 0: Hero banner — scrolls away ── */}
+        {/* ── 0: Hero banner ── */}
         <View onLayout={(e) => { bannerHeight.current = e.nativeEvent.layout.height; }}>
-          <View style={styles.heroBannerAiry}>
-            {/* Top Row: Location & Actions */}
-            <View style={styles.headerTopRowAiry}>
-              {/* Left: Location */}
-              <TouchableOpacity
-                style={styles.locationAiry}
-                activeOpacity={0.7}
-                onPress={() => router.push('/location/saved-addresses')}
-              >
-                <View style={styles.locationIconWrapAiry}>
-                  <Ionicons name="location" size={22} color={Colors.saffron} />
+          <LinearGradient
+            colors={activeViewRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#27272A', '#0F0F10']}
+            style={styles.heroBannerPremium}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+          >
+            {/* Row 1: Balanced Action Bar (No Brand Title) */}
+            <View style={styles.headerTopRowPremium}>
+              {/* Role Switcher */}
+              <View style={styles.roleSwitcherWrapper}>
+                <RoleSwitcher />
+              </View>
+
+              {/* Controls Row (Lang Selector + Notification Bell) */}
+              <View style={styles.controlsRowPremium}>
+                <TouchableOpacity style={styles.langBtnPremium} activeOpacity={0.8} onPress={openLangModal}>
+                  <Ionicons name="globe-outline" size={13} color="rgba(255, 255, 255, 0.85)" style={{ marginRight: 4 }} />
+                  <Text style={styles.langBtnTextPremium}>{currentLang?.native ?? 'EN'}</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.notificationBtnPremium}
+                  activeOpacity={0.8}
+                  onPress={() => router.push('/notifications' as any)}
+                >
+                  <Ionicons name="notifications-outline" size={15} color="rgba(255, 255, 255, 0.9)" />
+                  <View style={styles.notificationBadgeDot} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Row 2: Dedicated Spacious Location Capsule */}
+            <TouchableOpacity
+              style={styles.locationCapsulePremium}
+              activeOpacity={0.85}
+              onPress={() => router.push('/location/saved-addresses')}
+            >
+              <View style={styles.locationCapsuleLeft}>
+                <View style={styles.locationPinCirclePremium}>
+                  <Ionicons name="compass" size={15} color={Colors.saffron} />
                 </View>
-                <View style={styles.locationTextWrapAiry}>
-                  <Text style={styles.locationLabelAiry}>YOUR LOCATION</Text>
-                  <View style={styles.locationTitleRowAiry}>
-                    <Text style={styles.locationTitleAiry} numberOfLines={1}>
-                      {activeAddr ? (activeAddr.label === 'home' ? 'Home' : activeAddr.label === 'work' ? 'Work' : activeAddr.label === 'family' ? 'Family' : activeAddr.label.toUpperCase()) : 'Current Location'}
-                    </Text>
-                    <Ionicons name="chevron-down" size={16} color={Colors.white} style={{ marginLeft: 4, marginTop: 2 }} />
+
+                <View style={styles.locationDetails}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={styles.locationLabelTextPremium}>YOUR ACTIVE GIG ZONE</Text>
+                    <Animated.View style={[styles.locationLivePulseDot, { opacity: liveDotOpacity }]} />
                   </View>
-                  <Text style={styles.locationSubtitleAiry} numberOfLines={1}>
-                    {activeAddr ? activeAddr.area : (locationName ?? 'Ameerpet, Hyderabad')}
+                  <Text style={styles.locationAddressTextPremium} numberOfLines={1} ellipsizeMode="tail">
+                    {completeAddress}
                   </Text>
                 </View>
-              </TouchableOpacity>
-
-              {/* Right: Language */}
-              <TouchableOpacity style={styles.langBtnAiry} activeOpacity={0.8} onPress={openLangModal}>
-                <Text style={styles.langBtnTextAiry}>{currentLang?.native ?? 'EN'}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Overlapping Floating Search Bar */}
-          <Animated.View style={[styles.searchContainerAiry, { opacity: searchFade, transform: [{ scale: searchScale }] }]}>
-            <TouchableOpacity
-              style={styles.searchBarAiry}
-              activeOpacity={0.85}
-              onPress={() => router.push('/search')}
-            >
-              <Ionicons name="search" size={22} color={Colors.saffron} style={styles.searchIconAiry} />
-              <AnimatedPlaceholder active={false} />
-
-              <View style={styles.jobsBadgeAiry}>
-                <View style={styles.pulseDotAiry} />
-                <Text style={styles.jobsBadgeTextAiry}>{filteredJobs.length} nearby</Text>
               </View>
+              <Ionicons name="chevron-down" size={14} color="rgba(255, 255, 255, 0.5)" style={{ marginRight: 2 }} />
             </TouchableOpacity>
-          </Animated.View>
-        </View>
 
-        {/* ── 1: Suggestions (Always rendered node to keep sticky indices stable) ── */}
-        <View>
-          {suggestedJobs.length > 0 && (
-            <View style={styles.spotlightContainer}>
-              <Text style={styles.spotlightTitle}>✨ Suggestions For You</Text>
-              <FlatList
-                horizontal
-                data={suggestedJobs}
-                keyExtractor={(item) => item.id}
-                showsHorizontalScrollIndicator={false}
-                snapToInterval={262}
-                decelerationRate="fast"
-                snapToAlignment="start"
-                contentContainerStyle={styles.spotlightList}
-                renderItem={({ item, index }) => {
-                  const matchPercent = index === 0 ? '98%' : index === 1 ? '95%' : '90%';
-                  return (
-                    <TouchableOpacity
-                      style={styles.spotlightCard}
-                      activeOpacity={0.9}
-                      onPress={() => router.push(`/job/${item.id}` as any)}
-                    >
-                      <View style={styles.spotlightHeader}>
-                        <View style={styles.spotlightCircle}>
-                          <Ionicons
-                            name={item.category === 'delivery' ? 'bicycle' : item.category === 'driver' ? 'car' : 'storefront'}
-                            size={15}
-                            color="#FFB300"
-                          />
-                        </View>
-                        <View style={styles.spotlightBadge}>
-                          <Text style={styles.spotlightBadgeText}>{matchPercent} Match</Text>
-                        </View>
-                      </View>
-                      <View style={styles.spotlightContent}>
-                        <Text style={styles.spotlightJobTitle} numberOfLines={1}>{item.title}</Text>
-                        <Text style={styles.spotlightPoster} numberOfLines={1}>{item.poster_name} • ⭐ {item.poster_rating}</Text>
-                      </View>
-                      <View style={styles.spotlightFooter}>
-                        <View>
-                          <Text style={styles.spotlightPay}>₹{item.pay_amount}<Text style={styles.spotlightPaySub}>/{item.pay_type}</Text></Text>
-                          <Text style={styles.spotlightDistance}>📍 {item.distance_km?.toFixed(1)} km</Text>
-                        </View>
-                        <Text style={styles.spotlightAction}>Apply ⚡</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                }}
-              />
-            </View>
+          </LinearGradient>
+
+          {/* Seeker search bar or spacer */}
+          {activeViewRole === 'seeker' ? (
+            <Animated.View style={[styles.searchContainerAiry, { opacity: searchFade, transform: [{ scale: searchScale }] }]}>
+              <TouchableOpacity
+                style={styles.searchBarAiry}
+                activeOpacity={0.85}
+                onPress={() => router.push('/search')}
+              >
+                <Ionicons name="search" size={20} color={Colors.saffron} style={styles.searchIconAiry} />
+                <AnimatedPlaceholder active={false} />
+
+                <View style={styles.jobsBadgeAiry}>
+                  <View style={styles.pulseDotAiry} />
+                  <Text style={styles.jobsBadgeTextAiry}>{filteredJobs.length} nearby</Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : (
+            <View style={{ height: 16 }} />
           )}
         </View>
 
-        {/* ── 2: Premium Sticky Header (Categories + Jobs Header + Dropdowns) ── */}
-        <View style={styles.premiumStickyHeader}>
-          <CategorySection
-            categories={dynamicCategories}
-            selectedCategoryId={selectedCategory}
-            onSelectCategory={(id) => {
-              setSelectedCategory(id);
-              setPage(1);
-            }}
-          />
-
-          {/* Section header row: title left, filter dropdowns right */}
-          <View style={styles.sectionHead}>
-            <View style={styles.sectionTitleRow}>
-              <View style={styles.sectionIconWrap}>
-                <Ionicons name="location" size={14} color="#E91E63" />
+        {/* Dynamic content wrapper — child[1]: pre-sticky content with role crossfade */}
+        <Animated.View style={{ opacity: roleFade }}>
+          {activeViewRole === 'seeker' ? (
+            // Seeker: show suggestions only (rest moves to child[2] and child[3])
+            suggestedJobs.length > 0 ? (
+              <View style={styles.spotlightContainer}>
+                {/* Header */}
+                <View style={styles.spotlightTitleRow}>
+                  <View>
+                    <Text style={styles.spotlightTitle}>💡 Suggested For You</Text>
+                    <Text style={styles.spotlightSubtitle}>Based on your skills & location</Text>
+                  </View>
+                  <TouchableOpacity style={styles.spotlightTrackerWidget} activeOpacity={0.8} onPress={openTrackerModal}>
+                    <View style={styles.spotlightTrackerIconCircle}>
+                      <Ionicons name="briefcase-outline" size={13} color={Colors.saffron} />
+                      <View style={styles.spotlightBtnBadgeDot} />
+                    </View>
+                    <Text style={styles.spotlightTrackerLabel}>My Status</Text>
+                  </TouchableOpacity>
+                </View>
+                {/* Card list */}
+                <FlatList
+                  horizontal
+                  data={suggestedJobs}
+                  keyExtractor={(item) => item.id}
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={252}
+                  decelerationRate="fast"
+                  snapToAlignment="start"
+                  contentContainerStyle={styles.spotlightList}
+                  renderItem={({ item, index }) => {
+                    const matchPct = [98, 95, 92, 88][index] ?? 85;
+                    const catInfo = CATEGORIES.find(c => c.id === item.category) || { iconName: 'briefcase-outline' };
+                    return (
+                      <StaggeredCard
+                        index={index}
+                        style={styles.spotlightCard}
+                        activeOpacity={0.93}
+                        onPress={() => router.push(`/job/${item.id}` as any)}
+                      >
+                        {/* Row 1: Icon  +  Job Title */}
+                        <View style={styles.scRow1}>
+                          <View style={styles.scIconBox}>
+                            <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
+                          </View>
+                          <Text style={styles.scTitle} numberOfLines={2}>{item.title}</Text>
+                        </View>
+                        {/* Row 2: Provider + Rating  |  Match % */}
+                        <View style={styles.scRow2}>
+                          <View style={styles.scProviderGroup}>
+                            <Text style={styles.scProvider} numberOfLines={1}>{item.poster_name}</Text>
+                            <View style={styles.scRating}>
+                              <Ionicons name="star" size={10} color={Colors.gold} />
+                              <Text style={styles.scRatingText}> {item.poster_rating}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.scMatchBadge}>
+                            <Text style={styles.scMatchText}>{matchPct}% match</Text>
+                          </View>
+                        </View>
+                        {/* Divider */}
+                        <View style={styles.scDivider} />
+                        {/* Row 3: Pay  +  Distance  +  Apply */}
+                        <View style={styles.scFooter}>
+                          <View style={styles.scPayBlock}>
+                            <Text style={styles.scPay}>₹{item.pay_amount}</Text>
+                            <Text style={styles.scPaySub}>/{item.pay_type}</Text>
+                          </View>
+                          <View style={styles.scDistBlock}>
+                            <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
+                            <Text style={styles.scDist}>{item.distance_km?.toFixed(1)}km</Text>
+                          </View>
+                          <TouchableOpacity
+                            style={styles.scApplyBtn}
+                            activeOpacity={0.82}
+                            onPress={() => router.push(`/job/${item.id}` as any)}
+                          >
+                            <Text style={styles.scApplyText}>Apply</Text>
+                            <Ionicons name="arrow-forward" size={11} color={Colors.white} style={{ marginLeft: 3 }} />
+                          </TouchableOpacity>
+                        </View>
+                      </StaggeredCard>
+                    );
+                  }}
+                />
               </View>
-              <Text style={styles.sectionTitle}>Jobs Near You</Text>
+            ) : null
+          ) : (
+            // ============ JOB PROVIDER WORKFLOW ============
+            <View style={styles.providerContainer}>
+              {/* Personalized Greeting */}
+              <View style={styles.providerGreetingCard}>
+                <Text style={styles.providerGreetingText}>Welcome Back, Sai 💼</Text>
+                <Text style={styles.providerSubText}>Here is your real-time recruitment overview</Text>
+              </View>
+
+              {/* Hiring Overview Metric Grid */}
+              <View style={styles.metricsGrid}>
+                {[
+                  { label: 'Active Jobs', value: '3 Live', color: Colors.saffron, bg: Colors.saffronLight, icon: 'briefcase' },
+                  { label: 'Applicants Today', value: '14 New', color: '#1E88E5', bg: '#E3F2FD', icon: 'people' },
+                  { label: 'Pending Reviews', value: '8 Review', color: '#F57C00', bg: '#FFF3E0', icon: 'time' },
+                  { label: 'Hiring Speed', value: '92% Rate', color: '#43A047', bg: '#E8F5E9', icon: 'flash' },
+                ].map((metric) => (
+                  <View key={metric.label} style={styles.metricCard}>
+                    <View style={styles.metricHeader}>
+                      <Text style={styles.metricLabel}>{metric.label}</Text>
+                      <View style={[styles.metricIconBox, { backgroundColor: metric.bg }]}>
+                        <Ionicons name={metric.icon as any} size={16} color={metric.color} />
+                      </View>
+                    </View>
+                    <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity style={[styles.providerPostCta, Shadow.sm]} activeOpacity={0.85} onPress={() => router.push('/job/post' as any)}>
+                <View style={styles.providerCtaIcon}>
+                  <Ionicons name="add" size={24} color={Colors.white} />
+                </View>
+                <Text style={styles.providerCtaText}>Post a New Gig Listing Instantly</Text>
+              </TouchableOpacity>
+
+              <View style={styles.providerSectionHeader}>
+                <Text style={styles.providerSectionTitle}>Recent Applicants</Text>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/my-jobs' as any)}>
+                  <Text style={styles.providerViewAll}>View All</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.applicantsList}>
+                {[
+                  { id: 'app-001', name: 'Raju Kumar', rating: 4.7, distance: '1.2 km away', skills: ['Delivery', 'Driver'], completed: 18, color: '#FFB300' },
+                  { id: 'app-002', name: 'Suresh Mani', rating: 4.2, distance: '0.5 km away', skills: ['Warehouse', 'Labour'], completed: 7, color: '#FF7043' },
+                ].map((appl) => (
+                  <View key={appl.id} style={styles.applicantRowCard}>
+                    <View style={styles.applicantRowHeader}>
+                      <View style={styles.applicantAvatarBox}>
+                        <Text style={styles.applicantAvatarText}>{appl.name.charAt(0)}</Text>
+                      </View>
+                      <View style={styles.applicantRowInfo}>
+                        <Text style={styles.applicantRowName}>{appl.name}</Text>
+                        <Text style={styles.applicantRowMeta}>⭐ {appl.rating.toFixed(1)} • {appl.completed} Gigs Completed • {appl.distance}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.applicantSkillsGrid}>
+                      {appl.skills.map(sk => (
+                        <View key={sk} style={styles.skillPillBox}>
+                          <Text style={styles.skillPillText}>{sk}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <View style={styles.applicantRowActions}>
+                      <TouchableOpacity style={[styles.applicantRowBtn, styles.btnShortlist]} onPress={() => useUIStore.getState().showToast(`${appl.name} Shortlisted!`, 'success')}>
+                        <Text style={styles.btnShortlistText}>Shortlist</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.applicantRowBtn} onPress={() => useUIStore.getState().showToast(`Calling ${appl.name}...`, 'info')}>
+                        <Text style={styles.btnActionText}>Call</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.applicantRowBtn} onPress={() => router.push('/(tabs)/inbox' as any)}>
+                        <Text style={styles.btnActionText}>Chat</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.applicantRowBtn, styles.btnReject]} onPress={() => useUIStore.getState().showToast('Application archived', 'info')}>
+                        <Text style={styles.btnRejectText}>Reject</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.providerSectionHeader}>
+                <Text style={styles.providerSectionTitle}>Active Job Listings</Text>
+              </View>
+              <View style={styles.listingsGrid}>
+                {[
+                  { title: 'Delivery Partner Needed', views: 128, apps: 14, conv: '88%' },
+                  { title: 'Warehouse Helper Needed', views: 45, apps: 3, conv: '40%' },
+                ].map((lst, i) => (
+                  <View key={i} style={styles.listingMetricCard}>
+                    <View style={styles.listingMetricHead}>
+                      <Text style={styles.listingMetricTitle} numberOfLines={1}>{lst.title}</Text>
+                      <View style={styles.liveIndicatorPill}>
+                        <View style={styles.liveDotCircle} />
+                        <Text style={styles.liveIndicatorText}>Live</Text>
+                      </View>
+                    </View>
+                    <View style={styles.listingStatsRow}>
+                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.views}</Text><Text style={styles.statMetricLbl}>Views</Text></View>
+                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.apps}</Text><Text style={styles.statMetricLbl}>Applicants</Text></View>
+                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.conv}</Text><Text style={styles.statMetricLbl}>Conversion</Text></View>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.providerSectionHeader}>
+                <Text style={styles.providerSectionTitle}>Hiring Analytics</Text>
+              </View>
+              <View style={styles.analyticsBarCard}>
+                <Text style={styles.analyticsBarCardSub}>Applicants Received (Weekly trend)</Text>
+                <View style={styles.barGraphContainer}>
+                  {[
+                    { day: 'Mon', count: 12, height: 35 },
+                    { day: 'Tue', count: 24, height: 70 },
+                    { day: 'Wed', count: 18, height: 50 },
+                    { day: 'Thu', count: 32, height: 95 },
+                    { day: 'Fri', count: 15, height: 45 },
+                  ].map((item, idx) => (
+                    <View key={idx} style={styles.graphCol}>
+                      <Text style={styles.graphColVal}>{item.count}</Text>
+                      <View style={[styles.graphBarBody, { height: item.height }]} />
+                      <Text style={styles.graphColDay}>{item.day}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
             </View>
+          )}
+        </Animated.View>
 
-            {/* Filter dropdowns — right-aligned */}
-            <FilterBar
-              sortBy={sortBy}
-              payTypeFilter={payTypeFilter}
-              onSortChange={(s) => { setSortBy(s); setPage(1); }}
-              onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
+        {/* child[2]: STICKY header — categories + Jobs Near You + all filters (seeker only) */}
+        {activeViewRole === 'seeker' ? (
+          <View
+            style={[
+              styles.premiumStickyHeader,
+              isHeaderStuck && styles.premiumStickyHeaderStuck
+            ]}
+            onLayout={(e) => {
+              const layoutY = e.nativeEvent.layout.y;
+              if (layoutY > 0 && !isHeaderStuckRef.current) {
+                setStickyHeaderY(layoutY);
+              }
+            }}
+          >
+            <CategorySection
+              categories={dynamicCategories}
+              selectedCategoryId={selectedCategory}
+              onSelectCategory={handleSelectCategory}
+              isCompact={isHeaderStuck}
+              scrollY={scrollY}
+              stickyHeaderY={stickyHeaderY}
             />
-          </View>
-        </View>
 
-        {/* ── Job cards — rendered inline, no nested scroll ── */}
-        {isLoading
-          ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
-          : paginatedJobs.length === 0
-            ? renderEmpty()
-            : paginatedJobs.map((job) => (
-              <JobCard
-                key={job.id}
-                job={job}
-                onPress={(j) => router.push(`/job/${j.id}` as any)}
-                onApply={(j) => router.push(`/job/${j.id}` as any)}
+            {/* "Jobs Near You" title row */}
+            {!isHeaderStuck && (
+              <View style={styles.sectionHead}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={styles.sectionIconWrap}>
+                    <Ionicons name="location" size={14} color="#E91E63" />
+                  </View>
+                  <Text style={styles.sectionTitle}>Jobs Near You</Text>
+                  <View style={styles.radiusDistanceBadge}>
+                    <Text style={styles.radiusDistanceBadgeText}>within {radiusKm} km</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Combined Filters Row: Radius (Quantity selector) + Sort & Pay dropdowns */}
+            <View style={styles.combinedFiltersRow}>
+              <View style={styles.radiusSelector}>
+                <TouchableOpacity
+                  style={[styles.radiusStepBtn, radiusKm <= 1 && styles.radiusStepBtnDisabled]}
+                  onPress={() => {
+                    if (radiusKm > 1) {
+                      setRadiusKm(prev => prev - 1);
+                      setPage(1);
+                    }
+                  }}
+                  disabled={radiusKm <= 1}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="remove" size={12} color={radiusKm <= 1 ? Colors.gray3 : Colors.saffron} />
+                </TouchableOpacity>
+
+                <Text style={styles.radiusValueText}>{radiusKm} km</Text>
+
+                <TouchableOpacity
+                  style={[styles.radiusStepBtn, radiusKm >= 20 && styles.radiusStepBtnDisabled]}
+                  onPress={() => {
+                    if (radiusKm < 20) {
+                      setRadiusKm(prev => prev + 1);
+                      setPage(1);
+                    }
+                  }}
+                  disabled={radiusKm >= 20}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="add" size={12} color={radiusKm >= 20 ? Colors.gray3 : Colors.saffron} />
+                </TouchableOpacity>
+              </View>
+
+              <FilterBar
+                sortBy={sortBy}
+                payTypeFilter={payTypeFilter}
+                onSortChange={(s) => { setSortBy(s); setPage(1); }}
+                onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
               />
-            ))
-        }
+            </View>
+          </View>
+        ) : (
+          <View />
+        )}
 
-        {/* ── Pagination ── */}
-        {renderFooter()}
+        {/* child[3]: Job cards — only for seeker */}
+        {activeViewRole === 'seeker' && (
+          <View style={{ backgroundColor: Colors.background }}>
+            {isLoadingJobs
+              ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
+              : paginatedJobs.length === 0
+                ? renderEmpty()
+                : paginatedJobs.map((job: any) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    onPress={(j) => router.push(`/job/${j.id}` as any)}
+                    onApply={(j) => router.push(`/job/${j.id}` as any)}
+                  />
+                ))
+            }
+            {renderFooter()}
+          </View>
+        )}
       </Animated.ScrollView>
 
       {/* ── Bottom nav — hides on scroll down, shows on scroll up ── */}
@@ -589,6 +1145,235 @@ export default function HomeScreen() {
       >
         <BottomNav />
       </Animated.View>
+
+      {/* Application tracker modal bottom sheet */}
+      {showTrackerModal && (
+        <View style={styles.modalContainer}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeTrackerModal} />
+
+          <Animated.View
+            style={[
+              styles.modalOverlay,
+              { opacity: trackerModalAnim }
+            ]}
+            pointerEvents="box-none"
+          >
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeTrackerModal} />
+
+            <Animated.View
+              style={[
+                styles.trackerSheet,
+                {
+                  transform: [{
+                    translateY: trackerModalAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [500, 0]
+                    })
+                  }]
+                }
+              ]}
+            >
+              <View style={styles.trackerSheetHandle} />
+
+              <View style={styles.trackerSheetHeader}>
+                <Ionicons name="briefcase" size={20} color={Colors.saffron} style={{ marginRight: 8 }} />
+                <Text style={styles.trackerSheetTitle}>Application Status</Text>
+                <TouchableOpacity style={styles.trackerCloseBtn} onPress={closeTrackerModal}>
+                  <Ionicons name="close-circle" size={24} color={Colors.gray4} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.trackerSheetDivider} />
+
+              {/* Horizontal scrollable app selection tabs */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.trackerTabsScroll}
+                style={{ marginBottom: 16 }}
+              >
+                {MOCK_ACTIVE_APPLICATIONS.map((app, idx) => (
+                  <TouchableOpacity
+                    key={app.id}
+                    style={[
+                      styles.trackerTabBtn,
+                      activeAppIndex === idx && styles.trackerTabBtnActive
+                    ]}
+                    activeOpacity={0.8}
+                    onPress={() => setActiveAppIndex(idx)}
+                  >
+                    <Text style={[
+                      styles.trackerTabBtnText,
+                      activeAppIndex === idx && styles.trackerTabBtnTextActive
+                    ]}>
+                      {app.title}
+                    </Text>
+                    {app.hasActionBadge && (
+                      <View style={styles.trackerTabBadgePulse} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Application Details */}
+              {(() => {
+                const currentApp = MOCK_ACTIVE_APPLICATIONS[activeAppIndex] || MOCK_ACTIVE_APPLICATIONS[0];
+                return (
+                  <View style={styles.trackerJobCard}>
+                    <View style={styles.trackerJobHeader}>
+                      <Text style={styles.trackerJobTitle}>{currentApp.title}</Text>
+                      <View style={[
+                        styles.trackerStatusBadge,
+                        currentApp.statusType === 'review' && styles.trackerBadgeBlue,
+                        currentApp.statusType === 'offer' && styles.trackerBadgeGreen,
+                      ]}>
+                        <Text style={[
+                          styles.trackerStatusText,
+                          currentApp.statusType === 'review' && styles.trackerStatusTextBlue,
+                          currentApp.statusType === 'offer' && styles.trackerStatusTextGreen,
+                        ]}>
+                          {currentApp.statusText}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={styles.trackerJobCompany}>{currentApp.company} • {currentApp.pay}</Text>
+
+                    {/* Visual Timeline (Horizontal Stepper) */}
+                    <View style={styles.stepperContainerHorizontal}>
+                      {/* Connected background lines */}
+                      <View style={styles.stepperProgressTrack}>
+                        <View style={[
+                          styles.stepperProgressFill,
+                          {
+                            width:
+                              currentApp.steps.findIndex(s => s.status === 'active') !== -1
+                                ? `${(currentApp.steps.findIndex(s => s.status === 'active') / 3) * 100}%`
+                                : currentApp.steps.every(s => s.status === 'completed')
+                                  ? '100%'
+                                  : '0%'
+                          },
+                          currentApp.statusType === 'review' && styles.stepperFillBlue,
+                          currentApp.statusType === 'offer' && styles.stepperFillGreen,
+                        ]} />
+                      </View>
+
+                      {currentApp.steps.map((step, idx) => {
+                        const isCompleted = step.status === 'completed';
+                        const isActive = step.status === 'active';
+
+                        return (
+                          <View key={idx} style={styles.stepperStepItem}>
+                            {/* Circle Container */}
+                            <View style={[
+                              styles.stepperIconCircle,
+                              isCompleted && (
+                                currentApp.statusType === 'review' ? styles.stepperIconCircleCompletedBlue :
+                                  currentApp.statusType === 'offer' ? styles.stepperIconCircleCompletedGreen :
+                                    styles.stepperIconCircleCompleted
+                              ),
+                              isActive && (
+                                currentApp.statusType === 'review' ? styles.stepperIconCircleActiveBlue :
+                                  currentApp.statusType === 'offer' ? styles.stepperIconCircleActiveGreen :
+                                    styles.stepperIconCircleActive
+                              )
+                            ]}>
+                              <Ionicons
+                                name={step.iconName as any}
+                                size={15}
+                                color={
+                                  isCompleted ? Colors.white :
+                                    isActive ? (
+                                      currentApp.statusType === 'review' ? '#1E88E5' :
+                                        currentApp.statusType === 'offer' ? '#2E7D32' :
+                                          Colors.saffronDark
+                                    ) : Colors.gray4
+                                }
+                              />
+                            </View>
+
+                            {/* Label */}
+                            <Text style={[
+                              styles.stepperStepLabel,
+                              isActive && (
+                                currentApp.statusType === 'review' ? styles.stepperStepLabelActiveBlue :
+                                  currentApp.statusType === 'offer' ? styles.stepperStepLabelActiveGreen :
+                                    styles.stepperStepLabelActive
+                              ),
+                              isCompleted && styles.stepperStepLabelCompleted,
+                            ]} numberOfLines={1}>
+                              {step.label}
+                            </Text>
+
+                            {/* Date */}
+                            <Text style={styles.stepperStepDate}>
+                              {step.date}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+
+                    {/* Footer scheduled details card */}
+                    <View style={[
+                      styles.trackerScheduleAlert,
+                      currentApp.statusType === 'review' && styles.trackerAlertBlue,
+                      currentApp.statusType === 'offer' && styles.trackerAlertGreen,
+                    ]}>
+                      <Ionicons
+                        name={currentApp.alertIcon as any}
+                        size={18}
+                        color={
+                          currentApp.statusType === 'review' ? '#1E88E5' :
+                            currentApp.statusType === 'offer' ? '#2E7D32' :
+                              Colors.saffronDark
+                        }
+                        style={{ marginRight: 8, marginTop: 2 }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={[
+                          styles.trackerAlertTitle,
+                          currentApp.statusType === 'review' && styles.trackerAlertTitleBlue,
+                          currentApp.statusType === 'offer' && styles.trackerAlertTitleGreen,
+                        ]}>{currentApp.alertTitle}</Text>
+                        <Text style={[
+                          styles.trackerAlertText,
+                          currentApp.statusType === 'review' && styles.trackerAlertTextBlue,
+                          currentApp.statusType === 'offer' && styles.trackerAlertTextGreen,
+                        ]}>{currentApp.alertText}</Text>
+                      </View>
+                    </View>
+
+                    {/* Action button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.trackerActionBtn,
+                        currentApp.statusType === 'review' && styles.trackerActionBtnBlue,
+                        currentApp.statusType === 'offer' && styles.trackerActionBtnGreen,
+                      ]}
+                      activeOpacity={0.8}
+                      onPress={() => {
+                        closeTrackerModal();
+                        if (currentApp.ctaAction === 'directions') {
+                          useUIStore.getState().showToast('Directions & Info sent to WhatsApp!', 'success');
+                        } else if (currentApp.ctaAction === 'call') {
+                          Linking.openURL('tel:+919876543210').catch(() => {
+                            useUIStore.getState().showToast('Unable to place phone call.', 'error');
+                          });
+                        } else if (currentApp.ctaAction === 'accept') {
+                          useUIStore.getState().showToast('Gig offer accepted successfully!', 'success');
+                        }
+                      }}
+                    >
+                      <Text style={styles.trackerActionBtnText}>{currentApp.ctaText}</Text>
+                      <Ionicons name="arrow-forward" size={14} color={Colors.white} style={{ marginLeft: 6 }} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
+            </Animated.View>
+          </Animated.View>
+        </View>
+      )}
 
       {/* Language bottom sheet dropdown */}
       {showLangModal && (
@@ -729,7 +1514,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: Colors.white, // unified background — no gray/white contrast lines
+    backgroundColor: Colors.background, // upgraded token: #F8F9FB
   },
   bottomNavWrapper: {
     position: 'absolute',
@@ -741,67 +1526,149 @@ const styles = StyleSheet.create({
   premiumStickyHeader: {
     backgroundColor: Colors.white,
     zIndex: 10,
-    elevation: 0,
-    paddingBottom: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray1, // Softer gray1 boundary
+    marginTop: 0, // No negative margin to ensure smooth sticky behavior on scroll
+    paddingBottom: 6, // stable bottom breathing room
+    // High-end subtle floating shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  premiumStickyHeaderStuck: {
+    paddingTop: 8, // Sufficient top padding to give icons breathing room from the top edge when stuck
+    paddingBottom: 4,
+    backgroundColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray2,
+  },
+  radiusDistanceBadge: {
+    backgroundColor: 'rgba(255, 107, 0, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.sm,
+    marginLeft: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radiusDistanceBadgeText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.saffronDark,
   },
   heroBannerAiry: {
     backgroundColor: Colors.navy,
     paddingHorizontal: 20,
-    paddingTop: 12,
+    paddingTop: Platform.OS === 'ios' ? 16 : 20,
     paddingBottom: 48,
     borderBottomLeftRadius: 36,
     borderBottomRightRadius: 36,
+  },
+  heroBannerPremium: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 18 : 12, // Tight, compact top padding to avoid wasted space
+    paddingBottom: 28, // Compact breathing room with perfect search gap
+    borderBottomLeftRadius: 36, // Sleek modern organic curve
+    borderBottomRightRadius: 36, // Sleek modern organic curve
+    position: 'relative',
+    overflow: 'hidden',
+    borderBottomWidth: 1.5,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)', // Dark subtle boundary border
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  headerTopRowPremium: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 2,
+    marginTop: 2,
+    marginBottom: 4,
   },
   headerTopRowAiry: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    zIndex: 2,
   },
-  locationAiry: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 16,
-  },
-  locationIconWrapAiry: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255, 107, 0, 0.15)', // transparent saffron on navy
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-  locationTextWrapAiry: {
-    flex: 1,
-  },
-  locationLabelAiry: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.6)',
-    letterSpacing: 0.8,
-    marginBottom: 2,
-  },
-  locationTitleRowAiry: {
+  brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  locationTitleAiry: {
+  brandText: {
     fontFamily: FontFamily.headingBold,
     fontSize: 22,
     color: Colors.white,
-    letterSpacing: -0.4,
+    letterSpacing: -0.5,
   },
-  locationSubtitleAiry: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.sm,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginTop: 2,
+  brandAccent: {
+    color: Colors.saffron,
+  },
+  brandIconPulse: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+    shadowColor: Colors.saffron,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  brandTextPremium: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.white,
+    letterSpacing: -0.5,
+    textShadowColor: 'rgba(255, 255, 255, 0.15)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  brandAccentPremium: {
+    color: Colors.saffron,
+    textShadowColor: 'rgba(255, 107, 0, 0.4)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 6,
+  },
+  brandIconPulsePremium: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: Colors.saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 6,
+    shadowColor: Colors.saffron,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  roleSwitcherWrapper: {
+    marginRight: 8,
   },
   langBtnAiry: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -810,13 +1677,164 @@ const styles = StyleSheet.create({
   },
   langBtnTextAiry: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 13,
+    fontSize: 12,
     color: Colors.white,
   },
+  langBtnPremium: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: Radius.round,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)', // High-end glassmorphism for dark UI
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  langBtnTextPremium: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.xs,
+    color: Colors.white,
+  },
+  controlsRowPremium: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notificationBtnPremium: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    position: 'relative',
+  },
+  notificationBadgeDot: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#EF4444', // Hot notification red
+  },
+  locationCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.07)',
+    borderRadius: Radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  locationCapsulePremium: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)', // Translucent glassmorphism for dark UI
+    borderRadius: Radius.md,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 12, // Slightly moved up to optimize spacing
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 3,
+    zIndex: 2,
+  },
+  locationCapsuleLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  locationPinCircle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 107, 0, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationRadarWrapper: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  radarRing: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.saffron,
+    backgroundColor: 'rgba(255, 107, 0, 0.08)',
+  },
+  locationPinCirclePremium: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 107, 0, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.25)',
+    zIndex: 3,
+  },
+  locationDetails: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  locationLabelText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 8,
+    color: 'rgba(255, 255, 255, 0.45)',
+    letterSpacing: 0.6,
+  },
+  locationLabelTextPremium: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 7.5,
+    color: 'rgba(255, 255, 255, 0.45)', // Translucent white caption
+    letterSpacing: 0.8,
+  },
+  locationLivePulseDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: '#10B981', // Premium active emerald green
+    marginLeft: 5,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 3,
+  },
+  locationAddressText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 13,
+    color: Colors.white,
+    marginTop: 1,
+  },
+  locationAddressTextPremium: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9.8,
+    color: Colors.white, // Solid white text for dark UI readability
+    marginTop: 1,
+    letterSpacing: 0.15,
+  },
   searchContainerAiry: {
-    marginTop: -28, // Negative margin pulls it up over the banner
+    marginTop: -12, // Less negative margin to keep a premium visual gap below the location capsule
     paddingHorizontal: 20,
-    marginBottom: 20, // Space below it for the next section
+    marginBottom: 4, // Reduced space to pull suggestions closer
     zIndex: 10,
   },
   searchBarAiry: {
@@ -825,12 +1843,12 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderRadius: Radius.round, // Pill shape
     paddingHorizontal: 16,
-    height: 58, // Plush, tall search bar
+    height: 48, // Compact and sleek height
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
     shadowRadius: 20,
-    elevation: 8, // Very strong shadow to look like it's floating high
+    elevation: 8, // Floating high-depth shadow
   },
   searchIconAiry: {
     marginRight: 12,
@@ -838,11 +1856,12 @@ const styles = StyleSheet.create({
   jobsBadgeAiry: {
     position: 'absolute',
     right: 8,
+    top: 9, // Centered vertically: (48 - badgeHeight) / 2
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.saffronLight,
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: Radius.round,
   },
   pulseDotAiry: {
@@ -971,7 +1990,7 @@ const styles = StyleSheet.create({
   placeholderWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingLeft: 46,
+    paddingLeft: 40, // Reduced from 46 for sleeker layout
     zIndex: 1,
     height: '100%',
     overflow: 'hidden',
@@ -1048,7 +2067,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingBottom: 8,
+    paddingBottom: 2,
     paddingTop: 6,   // tighter — closer to CategorySection
   },
   sectionTitleRow: {
@@ -1072,18 +2091,45 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     lineHeight: 20,
   },
-  jobCountBadge: {
-    backgroundColor: Colors.saffronLight,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: Radius.round,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,0,0.2)',
+  // ── Combined Filters and Radius Selector ──────────────────────────
+  combinedFiltersRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingTop: 4,
+    paddingBottom: 6,
+    gap: 8,
   },
-  jobCountText: {
+  radiusSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 30,
+    borderRadius: Radius.round,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 4,
+    ...Shadow.xs,
+  },
+  radiusStepBtn: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.saffronLight,
+  },
+  radiusStepBtnDisabled: {
+    backgroundColor: Colors.gray1,
+  },
+  radiusValueText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 9,
-    color: Colors.saffronDark,
+    fontSize: 11,
+    color: Colors.ink,
+    paddingHorizontal: 6,
+    textAlign: 'center',
+    minWidth: 46,
   },
   emptyState: {
     alignItems: 'center',
@@ -1115,100 +2161,1227 @@ const styles = StyleSheet.create({
     fontSize: FontSize.lg,
     color: Colors.white,
   },
+  // ─────────────────────────────────────────────────────────────────
+  // Spotlight / Suggestion Cards
+  // ─────────────────────────────────────────────────────────────────
   spotlightContainer: {
-    paddingVertical: 14,
-    backgroundColor: Colors.white, // already white — matches screen now
+    paddingTop: 16,
+    paddingBottom: 18,
+    backgroundColor: Colors.background, // #F8F9FB — same as app bg
+    marginTop: -3,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray2,
+  },
+  spotlightTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
   spotlightTitle: {
     fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.md,
+    fontSize: 16,
     color: Colors.ink,
-    marginBottom: 12,
-    paddingHorizontal: 16,
+    letterSpacing: -0.3,
+  },
+  spotlightSubtitle: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray4,
+    marginTop: 1,
+  },
+  spotlightTrackerWidget: {
+    alignItems: 'center',
+  },
+  spotlightTrackerIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.saffron + '30',
+    marginBottom: 3,
+  },
+  spotlightTrackerLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+    color: Colors.gray5,
+  },
+  spotlightBtnBadgeDot: {
+    position: 'absolute',
+    top: 1,
+    right: 1,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.greenMid,
+    borderWidth: 1.5,
+    borderColor: Colors.background,
   },
   spotlightList: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     gap: 12,
   },
+  // ── Card itself ──────────────────────────────────────────────────
   spotlightCard: {
-    width: 250,
-    backgroundColor: '#0F172A', // Deep slate dark
-    borderRadius: 12,
-    padding: 12,
+    width: 242,
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(255,179,0,0.25)', // glowing gold accent border
+    borderColor: '#EAEAEA',
+    // Soft premium neutral shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
   spotlightHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  spotlightIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+    backgroundColor: 'rgba(255, 107, 0, 0.12)', // deeper saffron tint icon bg
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.2)',
+  },
+  spotlightMatchBadge: {
+    backgroundColor: Colors.greenLight,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+  },
+  spotlightMatchText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.green,
+  },
+  spotlightJobTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.ink,
+    letterSpacing: -0.2,
+    marginBottom: 4,
+  },
+  spotlightCompanyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  spotlightPoster: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray5,
+    flex: 1,
+    marginRight: 6,
+  },
+  spotlightRatingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  spotlightRating: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 11,
+    color: Colors.goldDark,
+  },
+  spotlightMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 10,
   },
+  spotlightPay: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 15,
+    color: Colors.navy,
+  },
+  spotlightPaySub: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+  },
+  spotlightDistChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 0, 0.07)', // warm tinted chip
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.15)',
+  },
+  spotlightDist: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.saffronDark,
+  },
+  spotlightCardDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 107, 0, 0.1)', // warm amber divider
+    marginBottom: 10,
+  },
+  spotlightApplyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.saffron,
+    paddingVertical: 9,
+    borderRadius: Radius.sm,
+    shadowColor: '#FF6B00',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  spotlightApplyText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 12,
+    color: Colors.white,
+    letterSpacing: 0.1,
+  },
+  // ── NEW card layout styles ──────────────────────────────────────
+  scRow1: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 10,
+  },
+  scIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 107, 0, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  scTitle: {
+    flex: 1,
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.ink,
+    letterSpacing: -0.2,
+    lineHeight: 18,
+  },
+  scRow2: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  scProviderGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 5,
+    marginRight: 6,
+  },
+  scProvider: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray5,
+    flexShrink: 1,
+  },
+  scRating: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  scRatingText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 11,
+    color: Colors.goldDark,
+  },
+  scMatchBadge: {
+    backgroundColor: 'rgba(46, 125, 50, 0.08)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+    flexShrink: 0,
+  },
+  scMatchText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: '#2E7D32',
+  },
+  scDivider: {
+    height: 1,
+    backgroundColor: '#F0F0F0',
+    marginVertical: 10,
+  },
+  scFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scPayBlock: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flex: 1,
+  },
+  scPay: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.navy,
+    letterSpacing: -0.3,
+  },
+  scPaySub: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+    marginLeft: 1,
+  },
+  scDistBlock: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 107, 0, 0.07)',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 0, 0.15)',
+    gap: 2,
+  },
+  scDist: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.saffronDark,
+  },
+  scApplyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.saffron,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
+    borderRadius: Radius.sm,
+    shadowColor: Colors.saffron,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  scApplyText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 11,
+    color: Colors.white,
+    letterSpacing: 0.1,
+  },
+  // ── Keep legacy aliases so existing code doesn't break ──────────
   spotlightCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotlightBadge: {
+    backgroundColor: Colors.greenLight,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
+  },
+  spotlightBadgeText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.green,
+  },
+  spotlightBadgePercent: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 13,
+    color: Colors.green,
+  },
+  spotlightContent: { marginBottom: 8 },
+  spotlightFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  spotlightLeftBar: { width: 4, backgroundColor: Colors.saffron },
+  spotlightCardInner: { flex: 1, padding: 12 },
+  spotlightAccentStrip: { height: 4, width: '100%' },
+  spotlightPayPill: { flexDirection: 'row', alignItems: 'baseline', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10 },
+  spotlightPayAmount: { fontFamily: FontFamily.headingBold, fontSize: 15, color: Colors.navy },
+  spotlightPayPer: { fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.gray4, marginLeft: 1 },
+  spotlightPayBlock: { flexDirection: 'row', alignItems: 'baseline' },
+  spotlightDistPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.gray1, paddingHorizontal: 8, paddingVertical: 4, borderRadius: Radius.round },
+  spotlightDistance: { fontFamily: FontFamily.bodySemiBold, fontSize: 11, color: Colors.gray5 },
+  spotlightInfoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  spotlightDivider: { height: 1, backgroundColor: Colors.gray1, marginBottom: 10 },
+  spotlightRatingChip: { flexDirection: 'row', alignItems: 'center' },
+  spotlightRatingSep: { fontSize: 11, color: Colors.gray3 },
+  spotlightActionBtn: { backgroundColor: Colors.saffron, paddingHorizontal: 12, paddingVertical: 5, borderRadius: Radius.round },
+  spotlightActionText: { fontFamily: FontFamily.bodySemiBold, fontSize: 10, color: Colors.white },
+  seekerGreetingCard: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  seekerGreetingText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.ink,
+  },
+  seekerSubText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.md,
+    color: Colors.gray5,
+    marginTop: 2,
+  },
+  seekerProgressCard: {
+    backgroundColor: Colors.white,
+    marginHorizontal: 20,
+    marginVertical: 12,
+    borderRadius: Radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  progressCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  progressCardTitle: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 14,
+    color: Colors.ink,
+  },
+  progressPercent: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 14,
+    color: Colors.saffron,
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: Colors.gray1,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: Colors.saffron,
+    borderRadius: 4,
+  },
+  progressTip: {
+    fontFamily: FontFamily.body,
+    fontSize: 11,
+    color: Colors.gray5,
+    lineHeight: 14,
+  },
+  quickActionsContainer: {
+    paddingVertical: 12,
+  },
+  seekerSectionHeader: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+    marginBottom: 12,
+    paddingHorizontal: 20,
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  quickActionItem: {
+    alignItems: 'center',
+    width: '22%',
+  },
+  quickActionCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    ...Shadow.sm,
+  },
+  quickActionText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.ink2,
+    textAlign: 'center',
+  },
+  miniMapContainer: {
+    paddingVertical: 12,
+  },
+  mapCard: {
+    marginHorizontal: 20,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  mockMapArea: {
+    height: 140,
+    backgroundColor: '#E0F2F1',
+    position: 'relative',
+  },
+  clusterMarker: {
+    position: 'absolute',
+    top: '40%',
+    left: '40%',
+    backgroundColor: 'rgba(255, 107, 0, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    ...Shadow.sm,
+  },
+  clusterText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 12,
+    color: Colors.white,
+  },
+  salaryMarker: {
+    position: 'absolute',
+    backgroundColor: Colors.white,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  salaryMarkerText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.saffronDark,
+  },
+  mapFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray2,
+    backgroundColor: Colors.white,
+  },
+  mapFooterText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray5,
+    marginLeft: 6,
+  },
+  activeAppsContainer: {
+    paddingVertical: 12,
+  },
+  appStatusCard: {
+    marginHorizontal: 20,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  appStatusTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  appStatusTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 16,
+    color: Colors.ink,
+  },
+  statusBadgeYellow: {
+    backgroundColor: Colors.goldLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.xs,
+  },
+  statusBadgeTextYellow: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.goldDark,
+  },
+  appStatusCompany: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 12,
+    color: Colors.gray5,
+    marginBottom: 16,
+  },
+  appStatusTimeline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 10,
+  },
+  timelinePointActive: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.green,
+  },
+  timelinePointYellow: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.gold,
+  },
+  timelinePoint: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: Colors.gray3,
+  },
+  timelineLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: Colors.gray2,
+  },
+  appStatusFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.gray1,
+    padding: 10,
+    borderRadius: Radius.sm,
+  },
+  appStatusFooterText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.ink2,
+    marginLeft: 6,
+    flex: 1,
+  },
+  providerContainer: {
+    paddingBottom: 20,
+  },
+  providerGreetingCard: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  providerGreetingText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.ink,
+  },
+  providerSubText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.md,
+    color: Colors.gray5,
+    marginTop: 2,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  metricCard: {
+    width: '48%',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  metricLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray5,
+  },
+  metricIconBox: {
     width: 28,
     height: 28,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,179,0,0.12)', // glowing gold background
   },
-  spotlightBadge: {
-    backgroundColor: '#E8F5E9',
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderRadius: Radius.round,
+  metricValue: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 18,
   },
-  spotlightBadgeText: {
+  providerPostCta: {
+    marginHorizontal: 20,
+    backgroundColor: Colors.navy,
+    borderRadius: Radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    marginBottom: 20,
+  },
+  providerCtaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  providerCtaText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 8.5,
-    color: '#2E7D32',
+    fontSize: 14,
+    color: Colors.white,
   },
-  spotlightContent: {
+  providerSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  providerSectionTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+  },
+  providerViewAll: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.saffron,
+  },
+  applicantsList: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  applicantRowCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  applicantRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 10,
   },
-  spotlightJobTitle: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 13,
-    color: Colors.white, // bright white title
+  applicantAvatarBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.saffronLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  spotlightPoster: {
+  applicantAvatarText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 18,
+    color: Colors.saffronDark,
+  },
+  applicantRowInfo: {
+    flex: 1,
+  },
+  applicantRowName: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 15,
+    color: Colors.ink,
+  },
+  applicantRowMeta: {
     fontFamily: FontFamily.bodyMedium,
-    fontSize: 10.5,
-    color: '#94A3B8', // sleek slate grey
-    marginTop: 1,
+    fontSize: 11,
+    color: Colors.gray5,
+    marginTop: 2,
   },
-  spotlightPay: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.md,
-    color: '#FFB300', // Saffron Gold
-  },
-  spotlightPaySub: {
-    fontFamily: FontFamily.body,
-    fontSize: 8.5,
-    color: '#94A3B8',
-  },
-  spotlightFooter: {
+  applicantSkillsGrid: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)', // micro clean line
-    paddingTop: 8,
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
   },
-  spotlightDistance: {
+  skillPillBox: {
+    backgroundColor: Colors.gray1,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.xs,
+  },
+  skillPillText: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: 10,
-    color: '#38BDF8', // soft sky blue for location
-    marginTop: 1,
+    color: Colors.ink2,
   },
-  spotlightAction: {
+  applicantRowActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  applicantRowBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.gray1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+  },
+  btnShortlist: {
+    backgroundColor: Colors.saffron,
+    borderColor: Colors.saffron,
+  },
+  btnShortlistText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10.5,
-    color: '#FFB300', // gold apply action
+    fontSize: 12,
+    color: Colors.white,
+  },
+  btnActionText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 12,
+    color: Colors.ink2,
+  },
+  btnReject: {
+    backgroundColor: Colors.redLight,
+    borderColor: 'transparent',
+  },
+  btnRejectText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 12,
+    color: Colors.redDark,
+  },
+  listingsGrid: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  listingMetricCard: {
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  listingMetricHead: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  listingMetricTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 15,
+    color: Colors.ink,
+    flex: 1,
+    marginRight: 10,
+  },
+  liveIndicatorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.greenLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.round,
+  },
+  liveDotCircle: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.green,
+    marginRight: 4,
+  },
+  liveIndicatorText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.greenDark,
+  },
+  listingStatsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.sm,
+    padding: 12,
+  },
+  statMetric: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statMetricVal: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 16,
+    color: Colors.ink,
+  },
+  statMetricLbl: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray5,
+    marginTop: 2,
+  },
+  analyticsBarCard: {
+    backgroundColor: Colors.white,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: Radius.md,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  analyticsBarCardSub: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.gray5,
+    marginBottom: 16,
+  },
+  barGraphContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 120,
+    paddingTop: 10,
+  },
+  graphCol: {
+    alignItems: 'center',
+    width: '16%',
+  },
+  graphColVal: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.gray5,
+    marginBottom: 4,
+  },
+  graphBarBody: {
+    width: 14,
+    backgroundColor: Colors.saffron,
+    borderRadius: Radius.round,
+  },
+  graphColDay: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray5,
+    marginTop: 6,
+  },
+  trackerBtnPremium: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.12)',
+    position: 'relative',
+  },
+  trackerBadgeDot: {
+    position: 'absolute',
+    top: 7,
+    right: 7,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F59E0B', // Saffron / Gold dot to highlight active applications
+  },
+  trackerSheet: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    width: '100%',
+    ...Shadow.lg,
+  },
+  trackerSheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: Colors.gray2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  trackerSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  trackerSheetTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+    flex: 1,
+  },
+  trackerCloseBtn: {
+    padding: 2,
+  },
+  trackerSheetDivider: {
+    height: 1,
+    backgroundColor: Colors.gray1,
+    marginVertical: 14,
+  },
+  trackerJobCard: {
+    width: '100%',
+  },
+  trackerJobHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  trackerJobTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.lg,
+    color: Colors.ink,
+  },
+  trackerStatusBadge: {
+    backgroundColor: Colors.goldLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.xs,
+  },
+  trackerStatusText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.goldDark,
+  },
+  trackerJobCompany: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.gray5,
+    marginBottom: 20,
+  },
+  stepperContainerHorizontal: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    width: '100%',
+    position: 'relative',
+    paddingHorizontal: 8,
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  stepperProgressTrack: {
+    position: 'absolute',
+    top: 17,
+    left: 36,
+    right: 36,
+    height: 3,
+    backgroundColor: Colors.gray2,
+    zIndex: 1,
+  },
+  stepperProgressFill: {
+    height: '100%',
+    backgroundColor: Colors.saffron,
+    width: '0%',
+  },
+  stepperFillBlue: {
+    backgroundColor: '#1E88E5',
+  },
+  stepperFillGreen: {
+    backgroundColor: '#43A047',
+  },
+  stepperStepItem: {
+    alignItems: 'center',
+    width: 64,
+    zIndex: 2,
+  },
+  stepperIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: Colors.gray1,
+    borderWidth: 2,
+    borderColor: Colors.gray2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+  },
+  stepperIconCircleCompleted: {
+    backgroundColor: Colors.green,
+    borderColor: Colors.green,
+  },
+  stepperIconCircleCompletedBlue: {
+    backgroundColor: '#1E88E5',
+    borderColor: '#1E88E5',
+  },
+  stepperIconCircleCompletedGreen: {
+    backgroundColor: '#43A047',
+    borderColor: '#43A047',
+  },
+  stepperIconCircleActive: {
+    backgroundColor: Colors.white,
+    borderColor: Colors.saffron,
+  },
+  stepperIconCircleActiveBlue: {
+    backgroundColor: Colors.white,
+    borderColor: '#1E88E5',
+  },
+  stepperIconCircleActiveGreen: {
+    backgroundColor: Colors.white,
+    borderColor: '#43A047',
+  },
+  stepperStepLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.gray4,
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  stepperStepLabelActive: {
+    fontFamily: FontFamily.headingBold,
+    color: Colors.goldDark,
+  },
+  stepperStepLabelActiveBlue: {
+    fontFamily: FontFamily.headingBold,
+    color: '#1E88E5',
+  },
+  stepperStepLabelActiveGreen: {
+    fontFamily: FontFamily.headingBold,
+    color: '#2E7D32',
+  },
+  stepperStepLabelCompleted: {
+    color: Colors.ink,
+    fontFamily: FontFamily.bodySemiBold,
+  },
+  stepperStepDate: {
+    fontFamily: FontFamily.body,
+    fontSize: 9,
+    color: Colors.gray4,
+    textAlign: 'center',
+  },
+  trackerScheduleAlert: {
+    flexDirection: 'row',
+    backgroundColor: Colors.goldLight,
+    padding: 12,
+    borderRadius: Radius.md,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.goldLight,
+  },
+  trackerAlertTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.sm,
+    color: Colors.goldDark,
+    marginBottom: 2,
+  },
+  trackerAlertText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: Colors.ink2,
+    lineHeight: 16,
+  },
+  trackerActionBtn: {
+    flexDirection: 'row',
+    backgroundColor: Colors.navy,
+    borderRadius: Radius.md,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  trackerActionBtnText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.md,
+    color: Colors.white,
+  },
+  trackerTabsScroll: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    flexDirection: 'row',
+  },
+  trackerTabBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: Radius.round,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    backgroundColor: Colors.gray1,
+    marginRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackerTabBtnActive: {
+    backgroundColor: Colors.navy,
+    borderColor: Colors.navy,
+  },
+  trackerTabBtnText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.sm,
+    color: Colors.ink2,
+  },
+  trackerTabBtnTextActive: {
+    color: Colors.white,
+  },
+  trackerTabBadgePulse: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.saffron,
+    marginLeft: 6,
+  },
+  trackerBadgeBlue: {
+    backgroundColor: '#E3F2FD',
+  },
+  trackerBadgeGreen: {
+    backgroundColor: '#E8F5E9',
+  },
+  trackerStatusTextBlue: {
+    color: '#1E88E5',
+  },
+  trackerStatusTextGreen: {
+    color: '#2E7D32',
+  },
+  timelineActiveDotBlue: {
+    backgroundColor: '#1E88E5',
+  },
+  timelineActiveDotGreen: {
+    backgroundColor: '#2E7D32',
+  },
+  timelineStepLabelActiveBlue: {
+    fontFamily: FontFamily.headingBold,
+    color: '#1E88E5',
+  },
+  timelineStepLabelActiveGreen: {
+    fontFamily: FontFamily.headingBold,
+    color: '#2E7D32',
+  },
+  trackerAlertBlue: {
+    backgroundColor: '#E3F2FD',
+    borderColor: '#E3F2FD',
+  },
+  trackerAlertGreen: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#E8F5E9',
+  },
+  trackerAlertTitleBlue: {
+    color: '#1E88E5',
+  },
+  trackerAlertTitleGreen: {
+    color: '#2E7D32',
+  },
+  trackerAlertTextBlue: {
+    color: Colors.ink2,
+  },
+  trackerAlertTextGreen: {
+    color: Colors.ink2,
+  },
+  trackerActionBtnBlue: {
+    backgroundColor: '#1E88E5',
+  },
+  trackerActionBtnGreen: {
+    backgroundColor: '#43A047',
   },
 });

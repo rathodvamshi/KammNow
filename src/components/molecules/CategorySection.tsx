@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily } from '../../theme';
+
+const AnimatedFlatList = Animated.FlatList || Animated.createAnimatedComponent(FlatList);
 
 export interface CategoryItem {
   id: string;
@@ -24,6 +26,9 @@ export interface CategorySectionProps {
   categories: CategoryItem[];
   selectedCategoryId: string;
   onSelectCategory: (id: string) => void;
+  isCompact?: boolean;
+  scrollY?: Animated.Value;
+  stickyHeaderY?: number;
 }
 
 const ITEM_WIDTH = 62;
@@ -45,13 +50,19 @@ const getBadgeBg = (badge: string) => {
 const CategoryItemView: React.FC<{
   item: CategoryItem;
   isActive: boolean;
-  onPress: () => void;
-}> = React.memo(({ item, isActive, onPress }) => {
+  onPress: (id: string) => void;
+  isCompact?: boolean;
+  scrollY?: Animated.Value;
+  stickyHeaderY?: number;
+}> = React.memo(({ item, isActive, onPress, isCompact, scrollY, stickyHeaderY }) => {
   const scaleAnim    = useRef(new Animated.Value(isActive ? 1.08 : 1)).current;
   const indicatorAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
   const pressAnim    = useRef(new Animated.Value(1)).current;
+  const pulseAnim    = useRef(new Animated.Value(1)).current;
+  const breatheLoop  = useRef<Animated.CompositeAnimation | null>(null);
 
   useEffect(() => {
+    // 1. Core scale and indicator animation
     Animated.parallel([
       Animated.spring(scaleAnim, {
         toValue: isActive ? 1.08 : 1,
@@ -65,6 +76,69 @@ const CategoryItemView: React.FC<{
         useNativeDriver: true,
       }),
     ]).start();
+
+    // 2. Stop any existing loop first
+    if (breatheLoop.current) {
+      breatheLoop.current.stop();
+      breatheLoop.current = null;
+    }
+
+    if (isActive) {
+      // Entrance bounce animation
+      Animated.sequence([
+        Animated.spring(pulseAnim, {
+          toValue: 0.85,
+          friction: 6,
+          tension: 85,
+          useNativeDriver: true,
+        }),
+        Animated.spring(pulseAnim, {
+          toValue: 1.15,
+          friction: 4,
+          tension: 65,
+          useNativeDriver: true,
+        }),
+        Animated.spring(pulseAnim, {
+          toValue: 1.0,
+          friction: 6,
+          tension: 55,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Continuous breathing loop (gentle scaling)
+        if (isActive) {
+          breatheLoop.current = Animated.loop(
+            Animated.sequence([
+              Animated.timing(pulseAnim, {
+                toValue: 1.06,
+                duration: 1200,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pulseAnim, {
+                toValue: 1.0,
+                duration: 1200,
+                useNativeDriver: true,
+              }),
+            ])
+          );
+          breatheLoop.current.start();
+        }
+      });
+    } else {
+      // Animate back to 1.0
+      Animated.spring(pulseAnim, {
+        toValue: 1.0,
+        friction: 8,
+        tension: 50,
+        useNativeDriver: true,
+      }).start();
+    }
+
+    return () => {
+      if (breatheLoop.current) {
+        breatheLoop.current.stop();
+      }
+    };
   }, [isActive]);
 
   const handlePressIn = () =>
@@ -73,48 +147,136 @@ const CategoryItemView: React.FC<{
   const handlePressOut = () =>
     Animated.spring(pressAnim, { toValue: 1, friction: 5, useNativeDriver: true }).start();
 
-  const combinedScale = Animated.multiply(scaleAnim, pressAnim);
+  // Scroll interpolation ranges
+  const startShrink = stickyHeaderY ? Math.max(0, stickyHeaderY - 80) : 170;
+  const endShrink = stickyHeaderY ? Math.max(0, stickyHeaderY) : 250;
+
+  // 1. Smoothly shrink the container width
+  const animatedItemWidth = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [62, 62, 48],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 48 : 62);
+
+  // 2. Smoothly scale down the circle (and icon inside it)
+  const animatedCircleScale = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [1, 1, 32 / 46],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 32 / 46 : 1);
+
+  // 3. Fade out the badge before stuck
+  const badgeFadeEnd = stickyHeaderY ? Math.max(0, stickyHeaderY - 40) : 210;
+  const animatedBadgeOpacity = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, badgeFadeEnd],
+    outputRange: [1, 1, 0],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 0 : 1);
+
+  // 4. Smooth label animations
+  const animatedLabelOpacity = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [1, 1, 0.85],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 0.85 : 1);
+
+  const animatedLabelScale = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [1, 1, 0.9],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 0.9 : 1);
+
+  const animatedLabelHeight = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [24, 24, 10],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 10 : 24);
+
+  const animatedLabelMarginTop = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [5, 5, 2],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 2 : 5);
+
+  // 5. Smooth active indicator width
+  const animatedIndicatorWidth = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [16, 16, 12],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 12 : 16);
+
+  // Multiply scale values safely
+  const combinedScale = Animated.multiply(
+    Animated.multiply(
+      Animated.multiply(scaleAnim, pressAnim),
+      animatedCircleScale
+    ),
+    pulseAnim
+  );
+
+  const handlePress = useCallback(() => {
+    onPress(item.id);
+  }, [item.id, onPress]);
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={handlePress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={styles.itemContainer}
     >
       <Animated.View
         style={[
-          styles.circle,
-          { backgroundColor: item.bgColor, transform: [{ scale: combinedScale }] },
-          isActive && styles.circleActive,
+          styles.itemContainer,
+          { width: animatedItemWidth }
         ]}
       >
-        <Ionicons name={item.iconName} size={20} color={item.iconColor} />
-
-        {item.badge && (
-          <View style={[styles.badge, { backgroundColor: getBadgeBg(item.badge) }]}>
-            <Text style={styles.badgeText}>{item.badge}</Text>
-          </View>
-        )}
-      </Animated.View>
-
-      <Text
-        style={[styles.label, isActive ? styles.labelActive : styles.labelInactive]}
-        numberOfLines={2}
-        ellipsizeMode="tail"
-      >
-        {item.name}
-      </Text>
-
-      {/* Active underline indicator */}
-      <View style={styles.indicatorWrap}>
         <Animated.View
           style={[
-            styles.indicator,
-            { transform: [{ scaleX: indicatorAnim }], opacity: indicatorAnim },
+            styles.circle,
+            {
+              backgroundColor: item.bgColor,
+              transform: [{ scale: combinedScale }],
+            },
+            isActive && styles.circleActive,
           ]}
-        />
-      </View>
+        >
+          {/* Always render icon at size 20, visual scale handles size transition */}
+          <Ionicons name={item.iconName} size={20} color={item.iconColor} />
+
+          {item.badge && (
+            <Animated.View style={[styles.badge, { backgroundColor: getBadgeBg(item.badge), opacity: animatedBadgeOpacity }]}>
+              <Text style={styles.badgeText}>{item.badge}</Text>
+            </Animated.View>
+          )}
+        </Animated.View>
+
+        <Animated.Text
+          style={[
+            styles.label,
+            isActive ? styles.labelActive : styles.labelInactive,
+            {
+              opacity: animatedLabelOpacity,
+              height: animatedLabelHeight,
+              marginTop: animatedLabelMarginTop,
+              transform: [{ scale: animatedLabelScale }],
+            }
+          ]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          {item.name}
+        </Animated.Text>
+
+        {/* Active underline indicator */}
+        <Animated.View style={[styles.indicatorWrap, { width: animatedIndicatorWidth }]}>
+          <Animated.View
+            style={[
+              styles.indicator,
+              { transform: [{ scaleX: indicatorAnim }], opacity: indicatorAnim },
+            ]}
+          />
+        </Animated.View>
+      </Animated.View>
     </Pressable>
   );
 });
@@ -124,6 +286,9 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
   categories,
   selectedCategoryId,
   onSelectCategory,
+  isCompact = false,
+  scrollY,
+  stickyHeaderY,
 }) => {
   const flatListRef   = useRef<FlatList>(null);
   const isMounted     = useRef(false);   // skip scroll on first render
@@ -169,15 +334,35 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
     return () => node.removeEventListener('wheel', onWheel);
   }, []);
 
-  const getItemLayout = (_: any, index: number) => ({
-    length: ITEM_WIDTH + ITEM_GAP,
-    offset: (ITEM_WIDTH + ITEM_GAP) * index,
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: (isCompact ? 48 : ITEM_WIDTH) + ITEM_GAP,
+    offset: ((isCompact ? 48 : ITEM_WIDTH) + ITEM_GAP) * index,
     index,
-  });
+  }), [isCompact]);
+
+  const startShrink = stickyHeaderY ? Math.max(0, stickyHeaderY - 80) : 170;
+  const endShrink = stickyHeaderY ? Math.max(0, stickyHeaderY) : 250;
+
+  const containerPaddingTop = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [6, 6, 2],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 2 : 6);
+
+  const listPaddingVertical = scrollY ? scrollY.interpolate({
+    inputRange: [0, startShrink, endShrink],
+    outputRange: [10, 10, 4],
+    extrapolate: 'clamp',
+  }) : (isCompact ? 4 : 10);
 
   return (
-    <View style={styles.container}>
-      <FlatList
+    <Animated.View
+      style={[
+        styles.container,
+        { paddingTop: containerPaddingTop }
+      ]}
+    >
+      <AnimatedFlatList
         ref={flatListRef}
         horizontal
         data={categories}
@@ -189,33 +374,36 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
         bounces
         alwaysBounceHorizontal
         getItemLayout={getItemLayout}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingVertical: listPaddingVertical }
+        ]}
         renderItem={({ item }) => (
           <CategoryItemView
             item={item}
             isActive={selectedCategoryId === item.id}
-            onPress={() => onSelectCategory(item.id)}
+            onPress={onSelectCategory}
+            isCompact={isCompact}
+            scrollY={scrollY}
+            stickyHeaderY={stickyHeaderY}
           />
         )}
       />
-    </View>
+    </Animated.View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     backgroundColor: 'transparent', // inherits parent — zero color mismatch
-    paddingTop: 6,
   },
   listContent: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
     gap: ITEM_GAP,
   },
 
   // Item
   itemContainer: {
-    width: ITEM_WIDTH,
     alignItems: 'center',
   },
   circle: {
@@ -224,13 +412,11 @@ const styles = StyleSheet.create({
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
-    // No border at all — background color provides the shape
-    // Soft shadow only, no elevation box effect on Android
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
-    elevation: 0, // 0 = no Android card border artifact
+    elevation: 0,
     ...Platform.select({
       web: { transition: 'box-shadow 0.18s ease' },
     }),
@@ -267,9 +453,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 10,
     textAlign: 'center',
-    marginTop: 5,
     lineHeight: 12,
-    height: 24,
     paddingHorizontal: 2,
   },
   labelInactive: {
@@ -283,7 +467,6 @@ const styles = StyleSheet.create({
 
   // Active indicator dot/line
   indicatorWrap: {
-    width: 16,
     height: 2,
     marginTop: 3,
     alignItems: 'center',

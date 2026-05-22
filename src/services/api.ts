@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
+import { matchingEngine, MatchingParams } from './matchingEngine';
 
 // Base URL — change to your Render backend or localhost for dev
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
@@ -43,5 +44,11 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Our local fetch wrapper simulating the backend matching engine.
+// Later, this can just become a call: return api.post('/jobs/recommend', params).then(res => res.data);
+export const fetchRecommendedJobs = async (params: MatchingParams) => {
+  return await matchingEngine.getRecommendations(params);
+};
 
 export default api;

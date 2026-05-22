@@ -1,14 +1,15 @@
-import React, { memo } from 'react';
+import React, { memo, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
+  Animated,
   Linking,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Colors, Radius, FontFamily, FontSize, Spacing } from '../../theme';
+import { Colors, Radius, FontFamily, FontSize, Spacing, Shadow } from '../../theme';
 import { Avatar } from '../atoms/Avatar';
 import { formatDistance } from '../../utils/helpers';
 import type { Job } from '../../types';
@@ -22,373 +23,437 @@ interface JobCardProps {
 export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) => {
   const slotsRemaining = job.quantity_total - job.quantity_hired;
   const isFull = slotsRemaining <= 0;
-  
   const fillPercentage = Math.min((job.quantity_hired / job.quantity_total) * 100, 100);
 
-  const handleContact = () => {
-    if (job.contact_phone) {
-      Linking.openURL(`tel:${job.contact_phone}`);
-    }
+  // Micro-interaction: card press scale
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const applyScaleAnim = useRef(new Animated.Value(1)).current;
+
+  const onPressIn = () => {
+    Animated.spring(scaleAnim, { toValue: 0.985, useNativeDriver: true, friction: 8, tension: 80 }).start();
+  };
+  const onPressOut = () => {
+    Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6, tension: 60 }).start();
+  };
+  const onApplyPressIn = () => {
+    Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true, friction: 8, tension: 100 }).start();
+  };
+  const onApplyPressOut = () => {
+    Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true, friction: 5, tension: 80 }).start();
   };
 
-  const payPeriodText = job.pay_type === 'hour' ? 'hr' : job.pay_type === 'day' ? 'day' : 'mo';
-  const payFormatted = job.pay_amount >= 1000 
-    ? `${(job.pay_amount / 1000).toFixed(job.pay_amount % 1000 === 0 ? 0 : 1)}K` 
+  const handleContact = () => {
+    if (job.contact_phone) Linking.openURL(`tel:${job.contact_phone}`);
+  };
+
+  // Pay display
+  const payPeriodLabel = job.pay_type === 'hour' ? '/hr' : job.pay_type === 'day' ? '/day' : '/mo';
+  const payFormatted = job.pay_amount >= 1000
+    ? `${(job.pay_amount / 1000).toFixed(job.pay_amount % 1000 === 0 ? 0 : 1)}K`
     : job.pay_amount.toString();
 
-  // Deduplicate Date text
-  let dateText = job.duration_text || '';
-  if (!dateText && job.work_start_date) {
-    dateText = job.work_start_date === job.work_end_date 
-      ? job.work_start_date 
-      : `${job.work_start_date} - ${job.work_end_date}`;
-  }
-
-  const locationLabel = job.distance_km !== undefined && job.distance_km !== null 
-    ? formatDistance(job.distance_km) 
+  const locationLabel = job.distance_km !== undefined && job.distance_km !== null
+    ? formatDistance(job.distance_km)
     : job.location_name;
 
+  // Trust score tiers
+  const trustScore = job.employer_trust_score ?? 0;
+  const trustColor = trustScore >= 75 ? Colors.green : trustScore >= 50 ? Colors.gold : Colors.gray4;
+  const trustLabel = trustScore >= 75 ? 'Trusted' : trustScore >= 50 ? 'Good' : 'New';
+
+  // Urgency — drives dopamine
+  const urgency = slotsRemaining === 1 ? 'Last 1 slot!' :
+    slotsRemaining <= 3 ? `Only ${slotsRemaining} left` : null;
+
   return (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => onPress(job)}
-      activeOpacity={0.9}
-    >
-      {/* Premium Header: Clean Top Row */}
-      <View style={styles.cardHeader}>
-        <View style={styles.employerBlock}>
-          <Avatar name={job.poster_name} size="sm" />
-          <View style={styles.employerInfo}>
-            <View style={styles.employerNameRow}>
-              <Text style={styles.employerName} numberOfLines={1}>{job.poster_name}</Text>
-              <View style={styles.verifiedDot}>
-                 <Ionicons name="checkmark" size={10} color={Colors.white} />
+    <Animated.View style={[styles.cardWrap, { transform: [{ scale: scaleAnim }] }]}>
+      <TouchableOpacity
+        style={styles.card}
+        onPress={() => onPress(job)}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        activeOpacity={1}
+      >
+        {/* ── TOP STRIP: Employer + Badges ─────────────────────────────── */}
+        <View style={styles.topRow}>
+          <View style={styles.employerBlock}>
+            <Avatar name={job.poster_name} size="sm" />
+            <View style={styles.employerInfo}>
+              <View style={styles.nameRow}>
+                <Text style={styles.employerName} numberOfLines={1}>{job.poster_name}</Text>
+                {job.employer_verified && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark" size={9} color={Colors.white} />
+                  </View>
+                )}
+              </View>
+              <View style={styles.metaRow}>
+                <Ionicons name="star" size={11} color={Colors.gold} />
+                <Text style={styles.metaRating}>{(job.poster_rating ?? 5.0).toFixed(1)}</Text>
+                <View style={styles.metaDot} />
+                <View style={[styles.trustPill, { backgroundColor: trustColor + '18' }]}>
+                  <Text style={[styles.trustText, { color: trustColor }]}>{trustLabel}</Text>
+                </View>
               </View>
             </View>
-            <Text style={styles.metaText}>
-              <Ionicons name="star" size={10} color={Colors.gold} /> {(job.poster_rating ?? 5.0).toFixed(1)}  <Text style={styles.metaDivider}>|</Text>  2h ago
-            </Text>
+          </View>
+
+          <View style={styles.rightBadges}>
+            {job.is_urgent && (
+              <View style={styles.urgentBadge}>
+                <Ionicons name="flash" size={10} color={Colors.red} />
+                <Text style={styles.urgentText}>URGENT</Text>
+              </View>
+            )}
           </View>
         </View>
 
-        {job.is_urgent && (
-          <View style={styles.urgentBadge}>
-            <Text style={styles.urgentText}>URGENT</Text>
+        {/* ── TITLE + PRICE: Most important info — biggest text ─────────── */}
+        <View style={styles.titlePriceRow}>
+          <Text style={styles.jobTitle} numberOfLines={2}>{job.title}</Text>
+          <View style={styles.priceBlock}>
+            <Text style={styles.priceAmount}>₹{payFormatted}</Text>
+            <Text style={styles.pricePeriod}>{payPeriodLabel}</Text>
+          </View>
+        </View>
+
+        {/* ── META GRID: 2×2 scan-optimised info grid ─────────────────── */}
+        <View style={styles.metaGrid}>
+          <View style={styles.metaCell}>
+            <Ionicons name="location-outline" size={13} color={Colors.saffron} />
+            <Text style={styles.metaCellText} numberOfLines={1}>{locationLabel}</Text>
+          </View>
+          <View style={styles.metaCell}>
+            <Ionicons name="time-outline" size={13} color={Colors.navy2} />
+            <Text style={styles.metaCellText}>{job.work_start_time || '9 AM'} – {job.work_end_time || '6 PM'}</Text>
+          </View>
+          <View style={styles.metaCell}>
+            <Ionicons name="calendar-outline" size={13} color={Colors.navy2} />
+            <Text style={styles.metaCellText} numberOfLines={1}>{job.duration_text || 'Ongoing'}</Text>
+          </View>
+          <View style={styles.metaCell}>
+            <Ionicons name="people-outline" size={13} color={Colors.navy2} />
+            <Text style={styles.metaCellText}>{job.quantity_total} workers needed</Text>
+          </View>
+        </View>
+
+        {/* ── PERKS STRIP ─────────────────────────────────────────────── */}
+        {(job.food_included || job.stay_included || job.travel_allowance || job.payment_schedule) && (
+          <View style={styles.perksRow}>
+            {job.food_included && <View style={styles.perkTag}><Text style={styles.perkTagText}>🍱 Food</Text></View>}
+            {job.stay_included && <View style={styles.perkTag}><Text style={styles.perkTagText}>🛏 Stay</Text></View>}
+            {job.travel_allowance && <View style={styles.perkTag}><Text style={styles.perkTagText}>🚌 Travel</Text></View>}
+            {job.payment_schedule && (
+              <View style={[styles.perkTag, styles.perkTagGreen]}>
+                <Text style={[styles.perkTagText, { color: Colors.green }]}>
+                  💸 {job.payment_schedule.charAt(0).toUpperCase() + job.payment_schedule.slice(1)} Pay
+                </Text>
+              </View>
+            )}
           </View>
         )}
-      </View>
 
-      {/* Main Title & Minimalist Pricing */}
-      <View style={styles.bodySection}>
-        <Text style={styles.jobTitle} numberOfLines={2}>{job.title}</Text>
-        <View style={styles.priceContainer}>
-          <Text style={styles.priceAmount}>₹{payFormatted}</Text>
-          <Text style={styles.pricePeriod}>/{payPeriodText}</Text>
-        </View>
-      </View>
-
-      {/* Elegant Details Row (Outline Icons, Clean Text) */}
-      <View style={styles.detailsRow}>
-        <View style={styles.detailItem}>
-          <Ionicons name="location-outline" size={16} color={Colors.ink} />
-          <Text style={styles.detailText} numberOfLines={1}>{locationLabel}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Ionicons name="briefcase-outline" size={16} color={Colors.ink} />
-          <Text style={styles.detailText}>{job.category.charAt(0).toUpperCase() + job.category.slice(1)}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Ionicons name="calendar-outline" size={16} color={Colors.ink} />
-          <Text style={styles.detailText} numberOfLines={1}>{dateText || 'Ongoing'}</Text>
-        </View>
-        <View style={styles.detailItem}>
-          <Ionicons name="time-outline" size={16} color={Colors.ink} />
-          <Text style={styles.detailText}>{job.work_start_time || '9 AM'} - {job.work_end_time || '6 PM'}</Text>
-        </View>
-      </View>
-
-      {/* Subtle Perks chips */}
-      {(job.payment_schedule || job.food_included || job.stay_included) && (
-        <View style={styles.perksContainer}>
-          {job.payment_schedule && (
-            <View style={[styles.perkChip, { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="cash" size={14} color="#2E7D32" />
-              <Text style={[styles.perkText, { color: '#2E7D32' }]}>{job.payment_schedule} Pay</Text>
+        {/* ── SLOTS PROGRESS ──────────────────────────────────────────── */}
+        <View style={styles.slotsRow}>
+          <View style={styles.progressWrap}>
+            <View style={styles.progressBg}>
+              <View style={[
+                styles.progressFill,
+                { width: `${fillPercentage}%` as any },
+                isFull && styles.progressFull,
+              ]} />
             </View>
-          )}
-          {job.food_included && (
-            <View style={[styles.perkChip, { backgroundColor: '#FFF3E0' }]}>
-              <Ionicons name="fast-food" size={14} color="#E65100" />
-              <Text style={[styles.perkText, { color: '#E65100' }]}>Food</Text>
-            </View>
-          )}
-          {job.stay_included && (
-            <View style={[styles.perkChip, { backgroundColor: '#E3F2FD' }]}>
-              <Ionicons name="home" size={14} color="#1565C0" />
-              <Text style={[styles.perkText, { color: '#1565C0' }]}>Stay</Text>
-            </View>
-          )}
-        </View>
-      )}
+            {urgency ? (
+              <Text style={styles.urgencyText}>{urgency}</Text>
+            ) : (
+              <Text style={styles.slotsText}>
+                <Text style={styles.slotsFilled}>{job.quantity_hired}</Text>/{job.quantity_total} filled
+              </Text>
+            )}
+          </View>
 
-      <View style={styles.divider} />
-
-      {/* Structured Footer */}
-      <View style={styles.footerSection}>
-        <View style={styles.slotsBlock}>
-          <Text style={styles.slotsLabel}>Applications</Text>
-          <Text style={styles.slotsValue}>
-            <Text style={styles.slotsHighlight}>{job.quantity_hired}</Text> of {job.quantity_total} Filled
-          </Text>
-          <View style={styles.progressBarBg}>
-            <View style={[styles.progressBarFill, { width: `${fillPercentage}%`, backgroundColor: isFull ? Colors.gray4 : Colors.navy }]} />
+          {/* ── CTAs ─────────────────────────────────────────────────── */}
+          <View style={styles.ctas}>
+            {job.show_phone && job.contact_phone && (
+              <TouchableOpacity style={styles.callBtn} onPress={handleContact} activeOpacity={0.8}>
+                <Ionicons name="call-outline" size={18} color={Colors.navy} />
+              </TouchableOpacity>
+            )}
+            <Animated.View style={{ transform: [{ scale: applyScaleAnim }] }}>
+              <TouchableOpacity
+                style={[styles.applyBtn, isFull && styles.applyBtnFull]}
+                onPress={() => onApply(job)}
+                onPressIn={onApplyPressIn}
+                onPressOut={onApplyPressOut}
+                disabled={isFull}
+                activeOpacity={1}
+              >
+                {!isFull && <Ionicons name="flash" size={13} color={Colors.white} />}
+                <Text style={[styles.applyBtnText, isFull && styles.applyBtnTextFull]}>
+                  {isFull ? 'Filled' : 'Apply'}
+                </Text>
+              </TouchableOpacity>
+            </Animated.View>
           </View>
         </View>
-        
-        <View style={styles.actionsBlock}>
-          {job.show_phone && job.contact_phone && (
-            <TouchableOpacity style={styles.classicCallButton} onPress={handleContact}>
-              <Ionicons name="call-outline" size={20} color={Colors.ink} />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity 
-            style={[styles.classicApplyButton, isFull && styles.classicApplyButtonDisabled]} 
-            onPress={() => onApply(job)}
-            disabled={isFull}
-          >
-            <Text style={styles.classicApplyText}>{isFull ? 'POSITION FILLED' : 'APPLY NOW'}</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
 });
 
 JobCard.displayName = 'JobCard';
 
 const styles = StyleSheet.create({
+  cardWrap: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
   card: {
     backgroundColor: Colors.white,
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-    borderRadius: Radius.lg, // slightly sharper corners for a classic look
-    padding: Spacing.xl,
+    borderRadius: Radius.xl,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 1,
-      },
-    }),
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
   },
-  cardHeader: {
+
+  // ── Top Row ──────────────────────────────────────────────────────────────
+  topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: Spacing.lg,
+    marginBottom: 14,
   },
   employerBlock: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
     flex: 1,
-    gap: 12,
   },
-  employerInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  employerNameRow: {
+  employerInfo: { flex: 1 },
+  nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
+    gap: 5,
+    marginBottom: 4,
   },
   employerName: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.md,
     color: Colors.ink,
-    letterSpacing: -0.2,
+    letterSpacing: -0.1,
   },
-  verifiedDot: {
-    backgroundColor: Colors.navy,
+  verifiedBadge: {
+    width: 15,
+    height: 15,
     borderRadius: 8,
-    width: 14,
-    height: 14,
+    backgroundColor: Colors.navy,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  metaText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.xs,
-    color: Colors.gray4,
+  metaRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
   },
-  metaDivider: {
-    color: Colors.gray2,
+  metaRating: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.ink2,
+  },
+  metaDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.gray3,
+  },
+  trustPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: Radius.round,
+  },
+  trustText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+    letterSpacing: 0.2,
+  },
+  rightBadges: {
+    alignItems: 'flex-end',
+    gap: 6,
   },
   urgentBadge: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.red,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: Radius.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: Colors.redLight,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: Radius.round,
   },
   urgentText: {
     fontFamily: FontFamily.headingBold,
     fontSize: 9,
     color: Colors.red,
-    letterSpacing: 1,
+    letterSpacing: 0.8,
   },
-  bodySection: {
-    marginBottom: Spacing.lg,
+
+  // ── Title + Price ────────────────────────────────────────────────────────
+  titlePriceRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: Spacing.md,
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 14,
   },
   jobTitle: {
     fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['3xl'],
+    fontSize: 18,
     color: Colors.ink,
-    lineHeight: 28,
-    letterSpacing: -0.5,
-    marginBottom: 10,
+    lineHeight: 26,
+    letterSpacing: -0.4,
     flex: 1,
   },
-  priceContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginTop: 4,
+  priceBlock: {
+    alignItems: 'flex-end',
+    paddingTop: 2,
   },
   priceAmount: {
-    fontFamily: FontFamily.headingMedium,
-    fontSize: FontSize['4xl'],
-    color: Colors.ink,
+    fontFamily: FontFamily.headingBold,
+    fontSize: 20,
+    color: Colors.saffron,
     letterSpacing: -0.5,
+    lineHeight: 26,
   },
   pricePeriod: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.md,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
     color: Colors.gray4,
-    marginLeft: 4,
+    marginTop: 1,
   },
-  detailsRow: {
+
+  // ── Meta Grid ────────────────────────────────────────────────────────────
+  metaGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 16,
-    marginBottom: Spacing.lg,
+    gap: 0,
+    marginBottom: 12,
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.md,
+    padding: 10,
+    rowGap: 8,
   },
-  detailItem: {
+  metaCell: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: '45%',
-    gap: 6,
+    gap: 5,
+    width: '50%',
   },
-  detailText: {
-    fontFamily: FontFamily.body,
+  metaCellText: {
+    fontFamily: FontFamily.bodyMedium,
     fontSize: FontSize.sm,
     color: Colors.ink2,
-  },
-  perksContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: Spacing.lg,
-  },
-  perkChip: {
-    backgroundColor: '#F8F9FA',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: Radius.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  perkText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.xs,
-    color: Colors.ink2,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-    marginBottom: 16,
-  },
-  footerSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
-  },
-  slotsBlock: {
     flex: 1,
   },
-  slotsLabel: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    color: Colors.gray4,
-    marginBottom: 4,
+
+  // ── Perks ────────────────────────────────────────────────────────────────
+  perksRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
   },
-  slotsValue: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.xs,
-    color: Colors.gray4,
-    marginBottom: 6,
+  perkTag: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.round,
+    backgroundColor: Colors.saffronLight,
   },
-  slotsHighlight: {
-    fontFamily: FontFamily.bodySemiBold,
-    color: Colors.ink,
+  perkTagGreen: {
+    backgroundColor: Colors.greenLight,
   },
-  progressBarBg: {
-    height: 4,
-    backgroundColor: Colors.gray1,
-    borderRadius: 2,
+  perkTagText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.saffronDark,
   },
-  progressBarFill: {
+
+  // ── Slots + CTAs ─────────────────────────────────────────────────────────
+  slotsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 4,
+  },
+  progressWrap: {
+    flex: 1,
+    gap: 5,
+  },
+  progressBg: {
+    height: 5,
+    backgroundColor: Colors.gray2,
+    borderRadius: Radius.round,
+    overflow: 'hidden',
+  },
+  progressFill: {
     height: '100%',
-    borderRadius: 2,
+    backgroundColor: Colors.saffron,
+    borderRadius: Radius.round,
   },
-  actionsBlock: {
+  progressFull: {
+    backgroundColor: Colors.gray4,
+  },
+  slotsText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray4,
+  },
+  slotsFilled: {
+    fontFamily: FontFamily.bodySemiBold,
+    color: Colors.ink2,
+  },
+  urgencyText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 11,
+    color: Colors.red,
+  },
+  ctas: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    flex: 1.2,
   },
-  classicCallButton: {
-    width: 44,
-    height: 44,
-    borderRadius: Radius.sm,
+  callBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.gray1,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#E8E8E8',
-    backgroundColor: Colors.white,
+    borderColor: Colors.gray2,
   },
-  classicApplyButton: {
-    flex: 1,
-    height: 44,
-    backgroundColor: Colors.navy,
-    borderRadius: Radius.sm,
+  applyBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 5,
+    height: 40,
+    paddingHorizontal: 18,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.saffron,
+    ...Shadow.saffron,
   },
-  classicApplyButtonDisabled: {
+  applyBtnFull: {
     backgroundColor: Colors.gray3,
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  classicApplyText: {
-    fontFamily: FontFamily.headingMedium,
-    fontSize: FontSize.xs,
+  applyBtnText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.md,
     color: Colors.white,
-    letterSpacing: 1,
+    letterSpacing: 0.3,
+  },
+  applyBtnTextFull: {
+    color: Colors.white,
   },
 });
