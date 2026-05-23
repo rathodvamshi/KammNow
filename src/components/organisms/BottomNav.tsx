@@ -24,7 +24,7 @@ const SEEKER_NAV_ITEMS: NavItem[] = [
   { icon: 'home-outline', iconActive: 'home', label: 'Home', href: '/(tabs)/' },
   { icon: 'location-outline', iconActive: 'location', label: 'Area', href: '/location/saved-addresses' },
   { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'My Gigs', href: '/(tabs)/my-jobs' },
-  { icon: 'mail-outline', iconActive: 'mail', label: 'Inbox', href: '/(tabs)/inbox', badge: true },
+  { icon: 'star-outline', iconActive: 'star', label: 'Feedback', href: '/(tabs)/feedback' },
   { icon: 'person-outline', iconActive: 'person', label: 'Profile', href: '/(tabs)/profile' },
 ];
 
@@ -32,7 +32,7 @@ const PROVIDER_NAV_ITEMS: NavItem[] = [
   { icon: 'grid-outline', iconActive: 'grid', label: 'Dashboard', href: '/(tabs)/' },
   { icon: 'briefcase-outline', iconActive: 'briefcase', label: 'Gigs', href: '/(tabs)/my-jobs' },
   { isPost: true, href: '/job/post' },
-  { icon: 'mail-outline', iconActive: 'mail', label: 'Inbox', href: '/(tabs)/inbox', badge: true },
+  { icon: 'star-outline', iconActive: 'star', label: 'Feedback', href: '/(tabs)/feedback' },
   { icon: 'business-outline', iconActive: 'business', label: 'Business', href: '/(tabs)/profile' },
 ];
 
@@ -45,6 +45,7 @@ export const BottomNav: React.FC = () => {
   const isActive = (href: string) => {
     if (href === '/(tabs)/') return pathname === '/' || pathname === '/(tabs)';
     if (href === '/location/saved-addresses') return pathname.startsWith('/location');
+    if (href === '/(tabs)/my-jobs') return pathname.includes('my-jobs') || pathname.startsWith('/job');
     return pathname.includes(href.replace('/(tabs)/', ''));
   };
 
@@ -117,11 +118,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.gray2,
     // Multi-layered depth shadow to make it float seamlessly
-    shadowColor: Colors.navy,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 12,
+    boxShadow: "0px 10px 36px rgba(15,23,42,0.08)",
   },
   item: {
     flex: 1,

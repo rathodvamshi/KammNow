@@ -11,60 +11,52 @@ import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../src/theme';
 import { TopBar } from '../../src/components/organisms/TopBar';
 import { BottomNav } from '../../src/components/organisms/BottomNav';
 import { ApplicationCard } from '../../src/components/molecules/ApplicationCard';
-import {
-  MOCK_RECEIVED_APPLICATIONS,
-  MOCK_SENT_APPLICATIONS,
-  MOCK_COMPLETED_APPLICATIONS,
-} from '../../src/services/mockData';
+import { useApplicationStore } from '../../src/store/applicationStore';
+import { useAuthStore } from '../../src/store/authStore';
+import { useUIStore } from '../../src/store/uiStore';
 import { router } from 'expo-router';
 import type { Application } from '../../src/types';
 
 type TabKey = 'received' | 'sent' | 'completed';
 
-const TABS: { key: TabKey; label: string; data: Application[] }[] = [
-  { key: 'received', label: 'Received', data: MOCK_RECEIVED_APPLICATIONS },
-  { key: 'sent', label: 'Sent', data: MOCK_SENT_APPLICATIONS },
-  { key: 'completed', label: 'Completed', data: MOCK_COMPLETED_APPLICATIONS },
-];
-
 export default function InboxScreen() {
   const [activeTab, setActiveTab] = useState<TabKey>('received');
-  const [applications, setApplications] = useState({
-    received: [...MOCK_RECEIVED_APPLICATIONS],
-    sent: [...MOCK_SENT_APPLICATIONS],
-    completed: [...MOCK_COMPLETED_APPLICATIONS],
-  });
+  const { myApplications, receivedApplications, updateApplicationStatus, cancelApplication } = useApplicationStore();
+  const { user } = useAuthStore();
+  const { currentRole } = useUIStore();
+
+  const completedApps = [
+    ...myApplications.filter(a => a.status === 'completed'),
+    ...receivedApplications.filter(a => a.status === 'completed')
+  ];
+
+  const applications = {
+    received: receivedApplications,
+    sent: myApplications,
+    completed: completedApps,
+  };
 
   const currentData = applications[activeTab];
 
   const handleAccept = (id: string) => {
-    setApplications((prev) => ({
-      ...prev,
-      received: prev.received.map((a) =>
-        a.id === id ? { ...a, status: 'accepted' as const } : a
-      ),
-    }));
+    updateApplicationStatus(id, 'accepted');
   };
 
   const handleReject = (id: string) => {
-    setApplications((prev) => ({
-      ...prev,
-      received: prev.received.map((a) =>
-        a.id === id ? { ...a, status: 'rejected' as const } : a
-      ),
-    }));
+    updateApplicationStatus(id, 'rejected');
   };
 
   const handleWithdraw = (id: string) => {
-    setApplications((prev) => ({
-      ...prev,
-      sent: prev.sent.map((a) =>
-        a.id === id ? { ...a, status: 'withdrawn' as const } : a
-      ),
-    }));
+    cancelApplication(id);
   };
 
   const pendingCount = applications.received.filter((a) => a.status === 'pending').length;
+
+  const TABS: { key: TabKey; label: string; data: Application[] }[] = [
+    { key: 'received', label: 'Received', data: applications.received },
+    { key: 'sent', label: 'Sent', data: applications.sent },
+    { key: 'completed', label: 'Completed', data: applications.completed },
+  ];
 
   return (
     <View style={styles.screen}>
@@ -124,13 +116,13 @@ export default function InboxScreen() {
             </Text>
             <Text style={styles.emptyTitle}>
               {activeTab === 'received' ? 'No applications received yet' :
-               activeTab === 'sent' ? 'No applications sent yet' :
-               'No completed jobs yet'}
+                activeTab === 'sent' ? 'No applications sent yet' :
+                  'No completed jobs yet'}
             </Text>
             <Text style={styles.emptySub}>
               {activeTab === 'received' ? 'Post a job to start receiving applications' :
-               activeTab === 'sent' ? 'Browse and apply for jobs nearby' :
-               'Completed jobs will appear here'}
+                activeTab === 'sent' ? 'Browse and apply for jobs nearby' :
+                  'Completed jobs will appear here'}
             </Text>
           </View>
         }

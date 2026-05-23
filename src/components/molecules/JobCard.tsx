@@ -9,7 +9,6 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Radius, FontFamily, FontSize, Shadow } from '../../theme';
 import { Avatar } from '../atoms/Avatar';
 import { buildJobCardDisplay, type JobCardBenefit } from '../../utils/jobCardDisplay';
@@ -28,32 +27,10 @@ const BENEFIT_TONES: Record<JobCardBenefit['tone'], { bg: string; text: string; 
   gold: { bg: Colors.goldLight, text: Colors.goldDark, icon: Colors.gold },
 };
 
-const StatCell: React.FC<{
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  value: string;
-}> = ({ icon, label, value }) => (
-  <View style={styles.statCell}>
-    <View style={styles.statIconWrap}>
-      <Ionicons name={icon} size={14} color={Colors.saffron} />
-    </View>
-    <Text style={styles.statLabel}>{label}</Text>
-    <Text style={styles.statValue} numberOfLines={1}>{value}</Text>
-  </View>
-);
-
 export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) => {
   const d = useMemo(() => buildJobCardDisplay(job), [job]);
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const applyScaleAnim = useRef(new Animated.Value(1)).current;
-
-  const accentColors = d.isUrgent
-    ? (['#EF4444', '#DC2626'] as const)
-    : ([Colors.saffron, Colors.saffronDark] as const);
-
-  const handleContact = () => {
-    if (job.contact_phone) Linking.openURL(`tel:${job.contact_phone}`);
-  };
 
   return (
     <Animated.View style={[styles.wrap, { transform: [{ scale: scaleAnim }] }]}>
@@ -64,144 +41,121 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
         onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6 }).start()}
         activeOpacity={1}
       >
-        <LinearGradient colors={accentColors} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.accentBar} />
-
         <View style={styles.cardBody}>
-          {/* Header */}
-          <View style={styles.topRow}>
-            <View style={styles.categoryPill}>
-              <Text style={styles.categoryEmoji}>{d.categoryEmoji}</Text>
-              <Text style={styles.categoryText}>{d.categoryLabel}</Text>
-            </View>
-            <View style={styles.topRight}>
-              {d.isUrgent && (
-                <View style={styles.urgentBadge}>
-                  <Ionicons name="flash" size={10} color={Colors.red} />
-                  <Text style={styles.urgentText}>URGENT</Text>
-                </View>
-              )}
-              <Text style={styles.postedAgo}>{d.postedAgo}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.title} numberOfLines={2}>{job.title}</Text>
-
-          {/* Pay hero */}
-          <View style={styles.payHero}>
-            <LinearGradient
-              colors={[Colors.saffronLighter, Colors.saffronLight]}
-              style={styles.payHeroInner}
-            >
-              <View>
-                <Text style={styles.payLabel}>You earn</Text>
-                <View style={styles.payRow}>
-                  <Text style={styles.payAmount}>{d.payPrimary}</Text>
-                  <Text style={styles.payPeriod}>{d.payPeriod}</Text>
-                </View>
-                {d.payHint ? <Text style={styles.payHint}>{d.payHint}</Text> : null}
-              </View>
-              <View style={styles.payIconCircle}>
-                <Ionicons name="wallet" size={20} color={Colors.saffron} />
-              </View>
-            </LinearGradient>
-          </View>
-
-          {/* Location */}
-          <View style={styles.locationRow}>
-            <Ionicons name="navigate-circle" size={16} color={Colors.saffron} />
-            <Text style={styles.locationText} numberOfLines={1}>{d.locationLine}</Text>
-          </View>
-
-          {/* Key stats — tap card for full schedule, skills, description */}
-          <View style={styles.statsRow}>
-            <StatCell icon="time-outline" label="Shift" value={d.shiftLine.split(' – ')[0] ?? d.shiftLine} />
-            <View style={styles.statDivider} />
-            <StatCell icon="calendar-outline" label="Duration" value={d.scheduleLine} />
-            <View style={styles.statDivider} />
-            <StatCell
-              icon="people-outline"
-              label="Open"
-              value={d.isFull ? 'Filled' : `${d.slotsRemaining} left`}
-            />
-          </View>
-
-          {/* Top perks preview */}
-          {(d.benefits.length > 0 || d.benefitsOverflow > 0) && (
-            <View style={styles.perksPreview}>
-              {d.benefits.map((b) => {
-                const tone = BENEFIT_TONES[b.tone];
-                return (
-                  <View key={b.label} style={[styles.perkDot, { backgroundColor: tone.bg }]}>
-                    <Ionicons name={b.icon} size={10} color={tone.icon} />
-                    <Text style={[styles.perkDotText, { color: tone.text }]}>{b.label}</Text>
-                  </View>
-                );
-              })}
-              {d.benefitsOverflow > 0 && (
-                <Text style={styles.perksMore}>+{d.benefitsOverflow} more</Text>
-              )}
-            </View>
-          )}
-
-          {/* Footer */}
-          <View style={styles.footer}>
+          {/* Header Row */}
+          <View style={styles.headerRow}>
             <View style={styles.employerBlock}>
-              <Avatar name={d.employerName} size="sm" />
+              <Avatar name={d.employerName} size="md" />
               <View style={styles.employerMeta}>
                 <View style={styles.employerNameRow}>
                   <Text style={styles.employerName} numberOfLines={1}>{d.employerName}</Text>
                   {d.isVerified && (
-                    <Ionicons name="checkmark-circle" size={14} color={Colors.green} />
+                    <Ionicons name="checkmark-circle" size={14} color="#2563EB" />
                   )}
                 </View>
-                <Text style={styles.employerSub} numberOfLines={1}>{d.employerMeta}</Text>
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${d.fillPercent}%` as any },
-                      d.isFull && styles.progressFillFull,
-                    ]}
-                  />
+                <View style={styles.ratingRow}>
+                  <Ionicons name="star" size={12} color="#F59E0B" />
+                  <Text style={styles.ratingText}>{d.ratingValue ? d.ratingValue.toFixed(1) : 'New'}</Text>
                 </View>
-                <Text style={[styles.slotsText, d.slotsUrgency && styles.slotsUrgent]}>
-                  {d.slotsUrgency ?? `${job.quantity_hired}/${job.quantity_total} hired`}
-                </Text>
               </View>
             </View>
 
-            <View style={styles.ctaCol}>
-              {d.showCall && (
-                <TouchableOpacity
-                  style={styles.callBtn}
-                  onPress={(e) => {
-                    e?.stopPropagation?.();
-                    handleContact();
-                  }}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="call" size={16} color={Colors.navy} />
-                </TouchableOpacity>
-              )}
-              <Animated.View style={{ transform: [{ scale: applyScaleAnim }] }}>
-                <TouchableOpacity
-                  style={[styles.applyBtn, d.isFull && styles.applyBtnOff]}
-                  onPress={() => onApply(job)}
-                  onPressIn={() => Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true }).start()}
-                  onPressOut={() => Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true }).start()}
-                  disabled={d.isFull}
-                  activeOpacity={0.9}
-                >
-                  <Text style={styles.applyText}>{d.isFull ? 'Full' : 'Apply'}</Text>
-                </TouchableOpacity>
-              </Animated.View>
+            <View style={styles.payBox}>
+              <View style={styles.payIconCircle}>
+                <Ionicons name="cash-outline" size={16} color="#1E293B" />
+              </View>
+              <View>
+                <Text style={styles.payLabel}>PAY</Text>
+                <View style={styles.payRow}>
+                  <Text style={styles.payAmount}>{d.payPrimary}</Text>
+                  <Text style={styles.payPeriod}>{d.payPeriod}</Text>
+                </View>
+                {d.payTotalInfo ? (
+                  <Text style={styles.payHint}>{d.payTotalInfo}</Text>
+                ) : null}
+              </View>
             </View>
           </View>
 
-          <View style={styles.detailsHint}>
-            <Text style={styles.detailsHintText}>View full details</Text>
-            <Ionicons name="chevron-forward" size={14} color={Colors.saffron} />
+          {/* Title Row */}
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>{job.title}</Text>
+            {d.isUrgent && (
+              <View style={styles.urgentBadge}>
+                <Ionicons name="flash" size={10} color="#DC2626" />
+                <Text style={styles.urgentText}>URGENT</Text>
+              </View>
+            )}
           </View>
+
+          {/* Timeline Row */}
+          <View style={styles.timelineRow}>
+            <View style={styles.infoBox}>
+              <View style={styles.boxHeader}>
+                <Ionicons name="calendar-outline" size={14} color="#64748B" />
+                <Text style={styles.boxLabel}>DATE</Text>
+              </View>
+              <Text style={styles.boxValue}>{d.startDate || 'Flexible'}</Text>
+              {!!d.endDate && d.endDate !== d.startDate && <Text style={styles.boxValue}>{d.endDate}</Text>}
+            </View>
+            <View style={styles.infoBox}>
+              <View style={styles.boxHeader}>
+                <Ionicons name="time-outline" size={14} color="#64748B" />
+                <Text style={styles.boxLabel}>TIMING</Text>
+              </View>
+              <Text style={styles.boxValue}>{d.startTime || 'Flexible'}</Text>
+              {!!d.endTime && d.endTime !== d.startTime && <Text style={styles.boxValue}>{d.endTime}</Text>}
+            </View>
+          </View>
+
+          {/* Benefits Box */}
+          {(d.benefits.length > 0 || d.benefitsOverflow > 0) && (
+            <View style={styles.infoBoxFull}>
+              <View style={styles.boxHeader}>
+                <Ionicons name="sparkles-outline" size={14} color="#64748B" />
+                <Text style={styles.boxLabel}>BENEFITS</Text>
+              </View>
+              <View style={styles.perksPreview}>
+                {d.benefits.map((b) => {
+                  const tone = BENEFIT_TONES[b.tone];
+                  return (
+                    <View key={b.label} style={[styles.perkDot, { backgroundColor: tone.bg }]}>
+                      <Ionicons name={b.icon} size={10} color={tone.icon} />
+                      <Text style={[styles.perkDotText, { color: tone.text }]}>{b.label}</Text>
+                    </View>
+                  );
+                })}
+                {d.benefitsOverflow > 0 && (
+                  <Text style={styles.perksMore}>+{d.benefitsOverflow} more</Text>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Footer Row */}
+          <View style={styles.footerRow}>
+            <View style={styles.distanceBox}>
+              <View style={styles.boxHeader}>
+                <Ionicons name="navigate-outline" size={14} color="#90CAF9" />
+                <Text style={styles.boxLabel}>DISTANCE</Text>
+              </View>
+              <Text style={styles.boxValueStrong}>{d.distanceText}</Text>
+            </View>
+
+            <Animated.View style={[styles.applyBtnOuter, { transform: [{ scale: applyScaleAnim }] }]}>
+              <TouchableOpacity
+                style={[styles.applyBtn, d.isFull && styles.applyBtnOff]}
+                onPress={() => onApply(job)}
+                onPressIn={() => Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true }).start()}
+                onPressOut={() => Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+                disabled={d.isFull}
+                activeOpacity={0.9}
+              >
+                <Text style={styles.applyText}>{d.isFull ? 'Full' : 'Apply Now'}</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -213,274 +167,217 @@ JobCard.displayName = 'JobCard';
 const styles = StyleSheet.create({
   wrap: {
     marginHorizontal: 16,
-    marginBottom: 14,
+    marginBottom: 20,
   },
   cardOuter: {
     backgroundColor: Colors.white,
-    borderRadius: 20,
+    borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(226, 232, 240, 0.9)',
-    ...Shadow.md,
+    borderColor: '#F8FAFC', // barely visible border like image
+    ...Shadow.sm,
     ...Platform.select({
-      ios: { shadowColor: Colors.navy, shadowOpacity: 0.1, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
+      ios: { boxShadow: '0px 8px 32px rgba(30,41,59,0.05)' },
     }),
   },
-  accentBar: { height: 3, width: '100%' },
-  cardBody: { padding: 16, paddingTop: 14 },
+  cardBody: { padding: 20 },
 
-  topRow: {
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: 'flex-start',
+    marginBottom: 20,
   },
-  categoryPill: {
+  employerBlock: { flexDirection: 'row', gap: 12, flex: 1, marginRight: 10 },
+  employerMeta: { justifyContent: 'center' },
+  employerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  employerName: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 16,
+    color: '#0F172A',
+  },
+  ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: Colors.navy,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: Radius.round,
+    gap: 4,
+    marginTop: 3,
   },
-  categoryEmoji: { fontSize: 11 },
-  categoryText: {
+  ratingText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    color: Colors.white,
-    letterSpacing: 0.2,
+    fontSize: 12,
+    color: '#D97706',
   },
-  topRight: { alignItems: 'flex-end', gap: 4 },
+  payBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EEF2FF', // light blue
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 12,
+  },
+  payIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: { boxShadow: '0px 2px 8px rgba(30,41,59,0.1)' },
+    }),
+  },
+  payLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+    color: '#64748B',
+    textTransform: 'uppercase',
+  },
+  payRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  payAmount: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 18,
+    color: '#0F172A',
+  },
+  payPeriod: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 12,
+    color: '#475569',
+  },
+  payHint: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+    color: '#334155',
+    marginTop: 2,
+  },
+
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    marginBottom: 16,
+    gap: 10,
+  },
+  title: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: '#0F172A',
+    lineHeight: 28,
+    letterSpacing: -0.5,
+  },
   urgentBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
-    backgroundColor: Colors.redLight,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
+    gap: 4,
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: Radius.round,
   },
   urgentText: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 8,
-    color: Colors.red,
+    fontSize: 10,
+    color: '#DC2626',
+    letterSpacing: 0.5,
+    textTransform: 'capitalize',
+  },
+
+  timelineRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  infoBox: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#F1F5F9', // light gray
+    backgroundColor: '#FAFAFA', // slight tint
+    borderRadius: 16,
+    padding: 14,
+  },
+  infoBoxFull: {
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+  },
+  boxHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  boxLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: '#94A3B8',
+    textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  postedAgo: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 10,
-    color: Colors.gray4,
-  },
-
-  title: {
+  boxValue: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 19,
-    color: Colors.ink,
-    lineHeight: 24,
-    letterSpacing: -0.4,
-    marginBottom: 12,
-  },
-
-  payHero: { marginBottom: 12, borderRadius: 14, overflow: 'hidden' },
-  payHeroInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 0, 0.12)',
-  },
-  payLabel: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 10,
-    color: Colors.saffronDark,
-    marginBottom: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-  },
-  payRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
-  payAmount: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 26,
-    color: Colors.saffronDark,
-    letterSpacing: -0.5,
-  },
-  payPeriod: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: Colors.saffron,
-  },
-  payHint: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 10,
-    color: Colors.gray4,
-    marginTop: 3,
-  },
-  payIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...Shadow.sm,
-  },
-
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: Colors.gray1,
-    borderRadius: 10,
-  },
-  locationText: {
-    flex: 1,
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
-    color: Colors.ink2,
-  },
-
-  statsRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    backgroundColor: Colors.surfaceRaised,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.gray2,
-    marginBottom: 10,
-    paddingVertical: 10,
-  },
-  statCell: { flex: 1, alignItems: 'center', paddingHorizontal: 4, gap: 3 },
-  statIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: Colors.saffronLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statLabel: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 9,
-    color: Colors.gray4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.3,
-  },
-  statValue: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    color: Colors.ink,
-    textAlign: 'center',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: Colors.gray2,
-    marginVertical: 4,
+    fontSize: 14,
+    color: '#0F172A',
+    marginVertical: 1,
   },
 
   perksPreview: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 12,
+    gap: 8,
   },
   perkDot: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: Radius.round,
   },
-  perkDotText: { fontFamily: FontFamily.bodySemiBold, fontSize: 10 },
+  perkDotText: { fontFamily: FontFamily.bodySemiBold, fontSize: 11 },
   perksMore: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    color: Colors.saffron,
+    fontSize: 11,
+    color: '#475569',
   },
 
-  footer: {
+  footerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Colors.gray1,
+    gap: 12,
+    alignItems: 'stretch',
   },
-  employerBlock: { flex: 1, flexDirection: 'row', gap: 10 },
-  employerMeta: { flex: 1, gap: 3 },
-  employerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  employerName: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: Colors.ink,
+  distanceBox: {
     flex: 1,
-  },
-  employerSub: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 10,
-    color: Colors.gray4,
-  },
-  progressTrack: {
-    height: 3,
-    backgroundColor: Colors.gray2,
-    borderRadius: 99,
-    marginTop: 4,
-    overflow: 'hidden',
-  },
-  progressFill: { height: '100%', backgroundColor: Colors.saffron, borderRadius: 99 },
-  progressFillFull: { backgroundColor: Colors.gray4 },
-  slotsText: { fontFamily: FontFamily.bodyMedium, fontSize: 9, color: Colors.gray4 },
-  slotsUrgent: { color: Colors.red, fontFamily: FontFamily.bodySemiBold },
-
-  ctaCol: { alignItems: 'flex-end', gap: 8 },
-  callBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: Colors.gray1,
-    alignItems: 'center',
-    justifyContent: 'center',
     borderWidth: 1,
-    borderColor: Colors.gray2,
-  },
-  applyBtn: {
-    minWidth: 72,
-    height: 40,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: Colors.saffron,
-    alignItems: 'center',
+    borderColor: '#F1F5F9',
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 14,
     justifyContent: 'center',
-    ...Shadow.saffron,
   },
-  applyBtnOff: { backgroundColor: Colors.gray3, shadowOpacity: 0, elevation: 0 },
-  applyText: {
+  boxValueStrong: {
     fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.md,
-    color: Colors.white,
+    fontSize: 14,
+    color: '#0F172A',
   },
-
-  detailsHint: {
-    flexDirection: 'row',
+  applyBtnOuter: { flex: 1 },
+  applyBtn: {
+    flex: 1,
+    backgroundColor: '#0F172A',
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.gray2,
+    paddingVertical: 16,
   },
-  detailsHintText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
-    color: Colors.saffron,
+  applyBtnOff: {
+    backgroundColor: '#94A3B8',
+  },
+  applyText: {
+    color: Colors.white,
+    fontFamily: FontFamily.headingBold,
+    fontSize: 16,
   },
 });

@@ -61,10 +61,6 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 8,
     backgroundColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 2,
+    boxShadow: "0px 1px 6px rgba(0,0,0,0.15)",
   },
 });

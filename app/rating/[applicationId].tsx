@@ -11,6 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as Haptics from 'expo-haptics';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../src/theme';
 import { TopBar } from '../../src/components/organisms/TopBar';
 
@@ -44,6 +46,7 @@ export default function RatingScreen() {
   const tagsList = RATING_TAGS[targetType];
 
   const handleToggleTag = (tag: string) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedTags((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
@@ -77,13 +80,16 @@ export default function RatingScreen() {
         </View>
 
         {/* Stars */}
-        <View style={styles.starsContainer}>
+        <Animated.View entering={FadeInDown.springify()} style={styles.starsContainer}>
           <Text style={styles.starsPrompt}>How was your experience?</Text>
           <View style={styles.starsRow}>
             {[1, 2, 3, 4, 5].map((s) => (
               <TouchableOpacity
                 key={s}
-                onPress={() => setStars(s)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                  setStars(s);
+                }}
                 activeOpacity={0.7}
               >
                 <Text style={[styles.star, stars >= s ? styles.starActive : styles.starInactive]}>
@@ -99,11 +105,11 @@ export default function RatingScreen() {
              stars === 4 ? 'Good 🙂' :
              stars === 5 ? 'Excellent! 🤩' : 'Select rating'}
           </Text>
-        </View>
+        </Animated.View>
 
         {/* Tags */}
         {stars > 0 && (
-          <View style={[styles.section, styles.animateIn]}>
+          <Animated.View entering={FadeInDown.delay(150).springify()} style={styles.section}>
             <Text style={styles.sectionLabel}>What stood out?</Text>
             <View style={styles.tagsContainer}>
               {tagsList.map((tag) => {
@@ -119,23 +125,25 @@ export default function RatingScreen() {
                 );
               })}
             </View>
-          </View>
+          </Animated.View>
         )}
 
         {/* Review input */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Write a review (Optional)</Text>
-          <TextInput
-            style={styles.textarea}
-            placeholder="Share details about your experience..."
-            placeholderTextColor={Colors.gray3}
-            value={reviewText}
-            onChangeText={setReviewText}
-            multiline
-            numberOfLines={4}
-            textAlignVertical="top"
-          />
-        </View>
+        {stars > 0 && (
+          <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.section}>
+            <Text style={styles.sectionLabel}>Write a review (Optional)</Text>
+            <TextInput
+              style={styles.textarea}
+              placeholder="Share details about your experience..."
+              placeholderTextColor={Colors.gray3}
+              value={reviewText}
+              onChangeText={setReviewText}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+          </Animated.View>
+        )}
 
         <View style={styles.spacer} />
 
@@ -229,6 +237,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     ...Shadow.sm,
   },
-  submitBtnDisabled: { opacity: 0.5, shadowOpacity: 0 },
+  submitBtnDisabled: { opacity: 0.5 },
   submitText: { fontFamily: FontFamily.headingBold, fontSize: FontSize.xl, color: Colors.white },
 });

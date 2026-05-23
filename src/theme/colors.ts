@@ -85,50 +85,26 @@ export const Spacing = {
   huge: 48,
 } as const;
 
-// ── Shadows: Layered depth ──────────────────────────────────────────────────
+// ── Shadows: Layered depth (boxShadow for web + native compat) ──────────────
 export const Shadow = {
   xs: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
+    boxShadow: '0px 1px 8px rgba(0,0,0,0.04)',
   },
   sm: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    boxShadow: '0px 2px 16px rgba(0,0,0,0.06)',
   },
   md: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.09,
-    shadowRadius: 16,
-    elevation: 6,
+    boxShadow: '0px 4px 32px rgba(0,0,0,0.09)',
   },
   lg: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 32,
-    elevation: 10,
+    boxShadow: '0px 8px 64px rgba(0,0,0,0.12)',
   },
   xl: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.18,
-    shadowRadius: 48,
-    elevation: 18,
+    boxShadow: '0px 16px 96px rgba(0,0,0,0.18)',
   },
   // Brand-tinted shadow for primary CTAs
   saffron: {
-    shadowColor: '#FF6B00',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.28,
-    shadowRadius: 20,
-    elevation: 10,
+    boxShadow: '0px 6px 40px rgba(255,107,0,0.28)',
   },
 } as const;
 

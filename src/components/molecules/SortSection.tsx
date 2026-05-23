@@ -180,11 +180,7 @@ const styles = StyleSheet.create({
     }),
   },
   circleActive: {
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    boxShadow: '0px 2px 8px rgba(255,107,0,0.1)',
   },
   label: {
     fontSize: 8.5,

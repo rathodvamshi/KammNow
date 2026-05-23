@@ -18,7 +18,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../../src/theme';
-import { MOCK_JOBS } from '../../src/services/mockData';
+import { supabase } from '../../src/services/supabase';
+import { useAuthStore } from '../../src/store/authStore';
 import {
   formatRelativeTime,
   getCategoryIcon,
@@ -26,6 +27,9 @@ import {
 import { buildJobDetailModel } from '../../src/utils/jobDetailDisplay';
 import { getCategoryLabel } from '../../src/utils/jobCardDisplay';
 import { JobDetailContent } from '../../src/components/organisms/JobDetailContent';
+import { useApplicationStore } from '../../src/store/applicationStore';
+import { AnimatedProgressTracker } from '../../src/components/molecules/AnimatedProgressTracker';
+import { ActivityIndicator } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
@@ -47,8 +51,6 @@ const MOCK_REVIEWS = Array.from({ length: 12 }).map((_, i) => ({
 export default function JobDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [description, setDescription] = useState('');
-  const [isApplying, setIsApplying] = useState(false);
-  const [applied, setApplied] = useState(false);
   const [visibleReviews, setVisibleReviews] = useState(5);
   const [isInputModalVisible, setInputModalVisible] = useState(false);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -56,6 +58,7 @@ export default function JobDetailScreen() {
   // Animation Refs
   const fadeAnim1 = useRef(new Animated.Value(0)).current;
   const fadeAnim2 = useRef(new Animated.Value(0)).current;
+  const [isApplyingLocally, setIsApplyingLocally] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -86,17 +89,37 @@ export default function JobDetailScreen() {
     extrapolate: 'clamp',
   });
 
-  // Find job from mock data
-  const job = MOCK_JOBS.find((j) => j.id === id) ?? MOCK_JOBS[0];
-  const detail = buildJobDetailModel(job);
-  const slotsLeft = detail.card.slotsRemaining;
+  const { user } = useAuthStore();
+  const [job, setJob] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('jobs').select('*').eq('id', id).single().then(({ data }) => {
+      if (data) setJob(data);
+    });
+  }, [id]);
+
+  const detail = job ? buildJobDetailModel(job) : null;
+  const slotsLeft = detail?.card.slotsRemaining ?? 0;
+
+  const { myApplications, applyToJob, cancelApplication, requestCancellation, isLoading } = useApplicationStore();
+  const existingApplication = myApplications.find(app => app.job_id === id);
+  const isApplied = !!existingApplication;
 
   const handleApply = async () => {
-    if (!description.trim()) return;
-    setIsApplying(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setIsApplying(false);
-    setApplied(true);
+    if (!user?.id) return;
+    setIsApplyingLocally(true);
+    await applyToJob(job, user.id);
+    setIsApplyingLocally(false);
+    router.replace('/(tabs)/my-jobs' as any);
+  };
+
+  const handleCancel = async () => {
+    if (!existingApplication) return;
+    if (existingApplication.status === 'pending') {
+      await cancelApplication(existingApplication.id);
+    } else {
+      await requestCancellation(existingApplication.id);
+    }
   };
 
   const renderStars = (rating: number) => {
@@ -119,6 +142,14 @@ export default function JobDetailScreen() {
   const handleCall = () => {
     if (job.contact_phone) Linking.openURL(`tel:${job.contact_phone}`);
   };
+
+  if (!job || !detail) {
+    return (
+      <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.saffron} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -299,10 +330,40 @@ export default function JobDetailScreen() {
 
       {/* Floating Apply Strip */}
       <View style={styles.floatingApplyStrip}>
-        {applied ? (
-          <View style={styles.appliedBanner}>
-            <Ionicons name="checkmark-circle" size={24} color={Colors.greenDark} />
-            <Text style={styles.appliedText}>Application Sent Successfully!</Text>
+        {isApplied ? (
+          <View style={styles.appliedContainer}>
+            <AnimatedProgressTracker status={existingApplication?.status || 'pending'} />
+            {existingApplication?.status === 'pending' && (
+               <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel} disabled={isLoading}>
+                 <Text style={styles.cancelBtnText}>{isLoading ? 'Cancelling...' : 'Cancel Request'}</Text>
+               </TouchableOpacity>
+            )}
+            {existingApplication?.status === 'accepted' && (
+              <View style={{ flexDirection: 'row', gap: Spacing.sm, marginTop: Spacing.sm }}>
+                <TouchableOpacity 
+                  style={[styles.cancelBtn, { flex: 1, backgroundColor: Colors.blueLight }]} 
+                  onPress={() => router.push(`/chat/${existingApplication.id}` as any)}
+                >
+                  <Text style={[styles.cancelBtnText, { color: Colors.blueDark }]}>💬 Chat</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[styles.cancelBtn, { flex: 1, backgroundColor: Colors.saffronLight }]} 
+                  onPress={detail.showPhone ? handleCall : undefined}
+                >
+                  <Text style={[styles.cancelBtnText, { color: Colors.saffronDark }]}>📞 Call</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {existingApplication?.status === 'accepted' && (
+               <TouchableOpacity style={[styles.cancelBtn, { marginTop: Spacing.sm }]} onPress={handleCancel} disabled={isLoading}>
+                 <Text style={styles.cancelBtnText}>{isLoading ? 'Requesting...' : 'Request Cancellation'}</Text>
+               </TouchableOpacity>
+            )}
+            {existingApplication?.status === 'cancellation_requested' && (
+               <View style={styles.cancellationRequestedBanner}>
+                 <Text style={styles.cancellationRequestedText}>Cancellation Requested</Text>
+               </View>
+            )}
           </View>
         ) : slotsLeft <= 0 ? (
           <View style={styles.fullBanner}>
@@ -322,9 +383,9 @@ export default function JobDetailScreen() {
             </TouchableOpacity>
             <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
               <TouchableOpacity
-                style={[styles.primaryBtn, isApplying && styles.primaryBtnDisabled]}
+                style={[styles.primaryBtn, isLoading && styles.primaryBtnDisabled]}
                 onPress={handleApply}
-                disabled={isApplying}
+                disabled={isLoading}
               >
                 <LinearGradient
                   colors={[Colors.saffron, Colors.saffronDark]}
@@ -332,7 +393,7 @@ export default function JobDetailScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.primaryBtnGradient}
                 >
-                  {isApplying ? (
+                  {isLoading ? (
                     <Text style={styles.primaryBtnText}>Sending...</Text>
                   ) : (
                     <>
@@ -825,19 +886,32 @@ const styles = StyleSheet.create({
     zIndex: 10,
     ...Shadow.lg,
   },
-  appliedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  appliedContainer: {
     gap: Spacing.sm,
-    backgroundColor: Colors.greenLight,
-    padding: Spacing.md,
-    borderRadius: Radius.md,
   },
-  appliedText: {
+  cancelBtn: {
+    backgroundColor: Colors.redLight,
+    paddingVertical: Spacing.md,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  cancelBtnText: {
+    color: Colors.redDark,
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.lg,
-    color: Colors.greenDark,
+    fontSize: FontSize.md,
+  },
+  cancellationRequestedBanner: {
+    backgroundColor: Colors.goldLight,
+    paddingVertical: Spacing.md,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
+  cancellationRequestedText: {
+    color: Colors.goldDark,
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
   },
   fullBanner: {
     flexDirection: 'row',

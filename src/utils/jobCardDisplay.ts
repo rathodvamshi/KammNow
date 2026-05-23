@@ -47,6 +47,13 @@ export interface JobCardDisplay {
   showCall: boolean;
   isUrgent: boolean;
   isVerified: boolean;
+  payTotalInfo?: string;
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  distanceText?: string;
+  ratingValue?: number;
 }
 
 const CATEGORY_LABELS: Record<JobCategory, string> = {
@@ -248,6 +255,29 @@ export function buildJobCardDisplay(job: Job): JobCardDisplay {
   const skillsShown = skills.slice(0, 3);
   const allBenefits = buildBenefits(job);
 
+  let payTotalInfo: string | undefined;
+  if (job.work_start_date && job.work_end_date && job.pay_type === 'day') {
+    const d1 = new Date(job.work_start_date).getTime();
+    const d2 = new Date(job.work_end_date).getTime();
+    if (!isNaN(d1) && !isNaN(d2) && d2 >= d1) {
+      const days = Math.floor((d2 - d1) / 86400000) + 1;
+      const total = days * job.pay_amount;
+      payTotalInfo = `For ${days} day${days > 1 ? 's' : ''} • Total ₹${total.toLocaleString('en-IN')}`;
+    }
+  } else if (job.duration_text && job.pay_type === 'day') {
+    // Basic fallback if duration text starts with a number
+    const match = job.duration_text.match(/^(\d+)\s*day/i);
+    if (match) {
+      const days = parseInt(match[1], 10);
+      const total = days * job.pay_amount;
+      payTotalInfo = `For ${days} day${days > 1 ? 's' : ''} • Total ₹${total.toLocaleString('en-IN')}`;
+    }
+  }
+
+  const distanceText = job.distance_km != null 
+    ? `${job.distance_km < 1 ? '<1' : job.distance_km.toFixed(1)} km away` 
+    : 'Location on apply';
+
   return {
     categoryLabel: getCategoryLabel(job.category),
     categoryEmoji: getCategoryIcon(job.category),
@@ -279,5 +309,12 @@ export function buildJobCardDisplay(job: Job): JobCardDisplay {
     showCall: Boolean(job.show_phone && job.contact_phone),
     isUrgent: job.is_urgent,
     isVerified: Boolean(job.employer_verified),
+    payTotalInfo,
+    startDate: job.work_start_date,
+    endDate: job.work_end_date,
+    startTime: job.work_start_time,
+    endTime: job.work_end_time,
+    distanceText,
+    ratingValue: job.poster_rating,
   };
 }

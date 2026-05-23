@@ -173,7 +173,7 @@ export default function SavedAddressesScreen() {
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)/'))}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
             style={styles.backBtn}
           >
             <Ionicons name="chevron-back" size={24} color={Colors.ink} />

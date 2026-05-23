@@ -35,7 +35,8 @@ import { useAddressStore } from '../../src/store/addressStore';
 import { LocationPromptBottomSheet } from '../../src/components/organisms/LocationPromptBottomSheet';
 import { reverseGeocode } from '../../src/utils/geocoding';
 
-import { MOCK_JOBS, MOCK_USER } from '../../src/services/mockData';
+import { useApplicationStore } from '../../src/store/applicationStore';
+import { useJobStore } from '../../src/store/jobStore';
 import { formatDistance, haversineDistance } from '../../src/utils/helpers';
 import type { Job, JobCategory } from '../../src/types';
 import { CategorySection, CategoryItem } from '../../src/components/molecules/CategorySection';
@@ -124,7 +125,7 @@ const AnimatedPlaceholder = ({ active }: { active: boolean }) => {
   if (active) return null;
 
   return (
-    <View style={[StyleSheet.absoluteFill, styles.placeholderWrap]} pointerEvents="none">
+    <View style={[[StyleSheet.absoluteFill, styles.placeholderWrap], { pointerEvents: "none" }]}>
       <Text style={styles.placeholderStatic}>Search </Text>
       <Animated.View style={{ transform: [{ translateY }], opacity, flex: 1 }}>
         <Text style={styles.placeholderAnimated}>
@@ -158,66 +159,8 @@ interface ActiveApplication {
   hasActionBadge?: boolean;
 }
 
-const MOCK_ACTIVE_APPLICATIONS: ActiveApplication[] = [
-  {
-    id: 'app-1',
-    title: 'Event Staff Crew',
-    company: 'QuickMart Ameerpet',
-    pay: '₹500/day',
-    statusText: 'Interview Scheduled',
-    statusType: 'interview',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 20', iconName: 'document-text-outline' },
-      { label: 'Reviewed', status: 'completed', date: 'May 21', iconName: 'eye-outline' },
-      { label: 'Interview', status: 'active', date: 'Tomorrow', iconName: 'calendar-outline' },
-      { label: 'Offer', status: 'pending', date: '--', iconName: 'award-outline' },
-    ],
-    alertIcon: 'calendar-outline',
-    alertTitle: 'Interview Details',
-    alertText: 'Tomorrow, 10:00 AM at store premises. Please bring a copy of your resume and ID proof.',
-    ctaText: 'Get Interview Directions',
-    ctaAction: 'directions',
-  },
-  {
-    id: 'app-2',
-    title: 'Delivery Associate',
-    company: 'Gati Logistics',
-    pay: '₹700/day',
-    statusText: 'Under Review',
-    statusType: 'review',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 18', iconName: 'document-text-outline' },
-      { label: 'Reviewed', status: 'active', date: 'May 19', iconName: 'eye-outline' },
-      { label: 'Interview', status: 'pending', date: '--', iconName: 'call-outline' },
-      { label: 'Offer', status: 'pending', date: '--', iconName: 'award-outline' },
-    ],
-    alertIcon: 'call-outline',
-    alertTitle: 'Recruiter Screening',
-    alertText: 'Your profile has been shortlisted. The hiring coordinator will contact you for a brief phone screening.',
-    ctaText: 'Call Recruiter Office',
-    ctaAction: 'call',
-  },
-  {
-    id: 'app-3',
-    title: 'Store Helper',
-    company: 'D-Mart Ameerpet',
-    pay: '₹450/day',
-    statusText: 'Offer Received',
-    statusType: 'offer',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 15', iconName: 'document-text-outline' },
-      { label: 'Reviewed', status: 'completed', date: 'May 16', iconName: 'eye-outline' },
-      { label: 'Interview', status: 'completed', date: 'May 17', iconName: 'people-outline' },
-      { label: 'Offer', status: 'active', date: 'May 18', iconName: 'gift-outline' },
-    ],
-    alertIcon: 'gift-outline',
-    alertTitle: 'Job Offer Details',
-    alertText: 'Congratulations! You have received a formal gig offer. Accept below to confirm your start date.',
-    ctaText: 'Accept Offer & Start',
-    ctaAction: 'accept',
-    hasActionBadge: true,
-  },
-];
+// Mock active applications array removed. 
+// We will rely on real data from useApplicationStore.
 
 // Staggered premium entrance animation card
 const StaggeredCard = React.memo(({ children, index, style, activeOpacity, onPress }: {
@@ -282,6 +225,8 @@ export default function HomeScreen() {
   const { lat, lng, locationName } = useLocationStore();
   const { language, setLanguage, currentRole } = useUIStore();
   const { savedAddresses, getActive, isLoaded, loadFromStorage } = useAddressStore();
+  const { myApplications, receivedApplications, fetchReceivedApplications, fetchMyApplications, updateApplicationStatus } = useApplicationStore();
+  const { myPostedJobs, fetchMyJobs } = useJobStore();
 
   // ── Scroll-driven animations ──────────────────────────────────────────────
   const { height: windowHeight } = useWindowDimensions();
@@ -334,6 +279,12 @@ export default function HomeScreen() {
         duration: 150,
         useNativeDriver: true,
       }).start();
+      if (currentRole === 'provider' && user?.id) {
+        fetchReceivedApplications(user.id);
+        fetchMyJobs(user.id);
+      } else if (currentRole === 'seeker' && user?.id) {
+        fetchMyApplications(user.id);
+      }
     });
   }, [currentRole]);
 
@@ -600,7 +551,7 @@ export default function HomeScreen() {
     queryFn: () => {
       // In a real app we'd get the user from auth state
       const matchingParams = {
-        user: MOCK_USER,
+        user: user || {},
         location: { latitude: userLat, longitude: userLng },
         category: selectedCategory === 'all' ? undefined : selectedCategory,
         searchTerm: searchQuery, // Passing search query to Trigger FTS search matching
@@ -622,10 +573,10 @@ export default function HomeScreen() {
 
   const processedJobs = jobsData || [];
 
-  // Constant suggestions regardless of selected category
+  // Constant suggestions based on matching jobs
   const suggestedJobs = useMemo(() => {
-    return MOCK_JOBS.slice(0, 4);
-  }, []);
+    return jobsData ? jobsData.slice(0, 4) : [];
+  }, [jobsData]);
 
   // Filter by radius then apply pagination
   const filteredJobs = useMemo(() => {
@@ -863,375 +814,336 @@ export default function HomeScreen() {
       <SafeAreaView style={{ backgroundColor: Colors.navy }} />
 
       <View style={styles.scrollHost}>
-      {/* ── Single scrollable surface ── */}
-      <Animated.ScrollView
-        style={styles.mainScroll}
-        ref={mainScrollViewRef}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingBottom: BOTTOM_NAV_HEIGHT + 40,
-          minHeight: scrollContainerMinHeight,
-        }}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            tintColor={Colors.saffron}
-            colors={[Colors.saffron]}
-          />
-        }
+        {/* ── Single scrollable surface ── */}
+        <Animated.ScrollView
+          style={styles.mainScroll}
+          ref={mainScrollViewRef}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingBottom: BOTTOM_NAV_HEIGHT + 40,
+            minHeight: scrollContainerMinHeight,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={Colors.saffron}
+              colors={[Colors.saffron]}
+            />
+          }
         // No stickyHeaderIndices — pinned chrome uses a fixed overlay to avoid layout drift
-      >
-        {/* ── 0: Hero banner ── */}
-        <View onLayout={(e) => { bannerHeight.current = e.nativeEvent.layout.height; }}>
-          <LinearGradient
-            colors={activeViewRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#27272A', '#0F0F10']}
-            style={styles.heroBannerPremium}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          >
-            {/* Row 1: Balanced Action Bar (No Brand Title) */}
-            <View style={styles.headerTopRowPremium}>
-              {/* Role Switcher */}
-              <View style={styles.roleSwitcherWrapper}>
-                <RoleSwitcher />
-              </View>
-
-              {/* Controls Row (Lang Selector + Notification Bell) */}
-              <View style={styles.controlsRowPremium}>
-                <TouchableOpacity style={styles.langBtnPremium} activeOpacity={0.8} onPress={openLangModal}>
-                  <Ionicons name="globe-outline" size={13} color="rgba(255, 255, 255, 0.85)" style={{ marginRight: 4 }} />
-                  <Text style={styles.langBtnTextPremium}>{currentLang?.native ?? 'EN'}</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.notificationBtnPremium}
-                  activeOpacity={0.8}
-                  onPress={() => router.push('/notifications' as any)}
-                >
-                  <Ionicons name="notifications-outline" size={15} color="rgba(255, 255, 255, 0.9)" />
-                  <View style={styles.notificationBadgeDot} />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Row 2: Dedicated Spacious Location Capsule */}
-            <TouchableOpacity
-              style={styles.locationCapsulePremium}
-              activeOpacity={0.85}
-              onPress={() => router.push('/location/saved-addresses')}
+        >
+          {/* ── 0: Hero banner ── */}
+          <View onLayout={(e) => { bannerHeight.current = e.nativeEvent.layout.height; }}>
+            <LinearGradient
+              colors={activeViewRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#27272A', '#0F0F10']}
+              style={styles.heroBannerPremium}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             >
-              <View style={styles.locationCapsuleLeft}>
-                <View style={styles.locationPinCirclePremium}>
-                  <Ionicons name="compass" size={15} color={Colors.saffron} />
+              {/* Row 1: Balanced Action Bar (No Brand Title) */}
+              <View style={styles.headerTopRowPremium}>
+                {/* Role Switcher */}
+                <View style={styles.roleSwitcherWrapper}>
+                  <RoleSwitcher />
                 </View>
 
-                <View style={styles.locationDetails}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={styles.locationLabelTextPremium}>YOUR ACTIVE GIG ZONE</Text>
-                    <Animated.View style={[styles.locationLivePulseDot, { opacity: liveDotOpacity }]} />
-                  </View>
-                  <Text style={styles.locationAddressTextPremium} numberOfLines={1} ellipsizeMode="tail">
-                    {completeAddress}
-                  </Text>
-                </View>
-              </View>
-              <Ionicons name="chevron-down" size={14} color="rgba(255, 255, 255, 0.5)" style={{ marginRight: 2 }} />
-            </TouchableOpacity>
+                {/* Controls Row (Lang Selector + Notification Bell) */}
+                <View style={styles.controlsRowPremium}>
+                  <TouchableOpacity style={styles.langBtnPremium} activeOpacity={0.8} onPress={openLangModal}>
+                    <Ionicons name="globe-outline" size={13} color="rgba(255, 255, 255, 0.85)" style={{ marginRight: 4 }} />
+                    <Text style={styles.langBtnTextPremium}>{currentLang?.native ?? 'EN'}</Text>
+                  </TouchableOpacity>
 
-          </LinearGradient>
-
-          {/* Seeker search bar or spacer */}
-          {activeViewRole === 'seeker' ? (
-            <Animated.View style={[styles.searchContainerAiry, { opacity: searchFade, transform: [{ scale: searchScale }] }]}>
-              <TouchableOpacity
-                style={styles.searchBarAiry}
-                activeOpacity={0.85}
-                onPress={() => router.push('/search')}
-              >
-                <Ionicons name="search" size={20} color={Colors.saffron} style={styles.searchIconAiry} />
-                <AnimatedPlaceholder active={false} />
-
-                <View style={styles.jobsBadgeAiry}>
-                  <View style={styles.pulseDotAiry} />
-                  <Text style={styles.jobsBadgeTextAiry}>{filteredJobs.length} nearby</Text>
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
-          ) : (
-            <View style={{ height: 16 }} />
-          )}
-        </View>
-
-        {/* Dynamic content wrapper — child[1]: pre-sticky content with role crossfade */}
-        <Animated.View style={{ opacity: roleFade }}>
-          {activeViewRole === 'seeker' ? (
-            // Seeker: show suggestions only (rest moves to child[2] and child[3])
-            suggestedJobs.length > 0 ? (
-              <View style={styles.spotlightContainer}>
-                {/* Header */}
-                <View style={styles.spotlightTitleRow}>
-                  <View>
-                    <Text style={styles.spotlightTitle}>💡 Suggested For You</Text>
-                    <Text style={styles.spotlightSubtitle}>Based on your skills & location</Text>
-                  </View>
-                  <TouchableOpacity style={styles.spotlightTrackerWidget} activeOpacity={0.8} onPress={openTrackerModal}>
-                    <View style={styles.spotlightTrackerIconCircle}>
-                      <Ionicons name="briefcase-outline" size={13} color={Colors.saffron} />
-                      <View style={styles.spotlightBtnBadgeDot} />
-                    </View>
-                    <Text style={styles.spotlightTrackerLabel}>My Status</Text>
+                  <TouchableOpacity
+                    style={styles.notificationBtnPremium}
+                    activeOpacity={0.8}
+                    onPress={() => router.push('/notifications' as any)}
+                  >
+                    <Ionicons name="notifications-outline" size={15} color="rgba(255, 255, 255, 0.9)" />
+                    <View style={styles.notificationBadgeDot} />
                   </TouchableOpacity>
                 </View>
-                {/* Card list */}
-                <FlatList
-                  horizontal
-                  data={suggestedJobs}
-                  keyExtractor={(item) => item.id}
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={252}
-                  decelerationRate="fast"
-                  snapToAlignment="start"
-                  contentContainerStyle={styles.spotlightList}
-                  renderItem={({ item, index }) => {
-                    const matchPct = [98, 95, 92, 88][index] ?? 85;
-                    const catInfo = CATEGORIES.find(c => c.id === item.category) || { iconName: 'briefcase-outline' };
-                    return (
-                      <StaggeredCard
-                        index={index}
-                        style={styles.spotlightCard}
-                        activeOpacity={0.93}
-                        onPress={() => router.push(`/job/${item.id}` as any)}
-                      >
-                        {/* Row 1: Icon  +  Job Title */}
-                        <View style={styles.scRow1}>
-                          <View style={styles.scIconBox}>
-                            <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
-                          </View>
-                          <Text style={styles.scTitle} numberOfLines={2}>{item.title}</Text>
-                        </View>
-                        {/* Row 2: Provider + Rating  |  Match % */}
-                        <View style={styles.scRow2}>
-                          <View style={styles.scProviderGroup}>
-                            <Text style={styles.scProvider} numberOfLines={1}>{item.poster_name}</Text>
-                            <View style={styles.scRating}>
-                              <Ionicons name="star" size={10} color={Colors.gold} />
-                              <Text style={styles.scRatingText}> {item.poster_rating}</Text>
-                            </View>
-                          </View>
-                          <View style={styles.scMatchBadge}>
-                            <Text style={styles.scMatchText}>{matchPct}% match</Text>
-                          </View>
-                        </View>
-                        {/* Divider */}
-                        <View style={styles.scDivider} />
-                        {/* Row 3: Pay  +  Distance  +  Apply */}
-                        <View style={styles.scFooter}>
-                          <View style={styles.scPayBlock}>
-                            <Text style={styles.scPay}>₹{item.pay_amount}</Text>
-                            <Text style={styles.scPaySub}>/{item.pay_type}</Text>
-                          </View>
-                          <View style={styles.scDistBlock}>
-                            <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
-                            <Text style={styles.scDist}>{item.distance_km?.toFixed(1)}km</Text>
-                          </View>
-                          <TouchableOpacity
-                            style={styles.scApplyBtn}
-                            activeOpacity={0.82}
-                            onPress={() => router.push(`/job/${item.id}` as any)}
-                          >
-                            <Text style={styles.scApplyText}>Apply</Text>
-                            <Ionicons name="arrow-forward" size={11} color={Colors.white} style={{ marginLeft: 3 }} />
-                          </TouchableOpacity>
-                        </View>
-                      </StaggeredCard>
-                    );
-                  }}
-                />
-              </View>
-            ) : null
-          ) : (
-            // ============ JOB PROVIDER WORKFLOW ============
-            <View style={styles.providerContainer}>
-              {/* Personalized Greeting */}
-              <View style={styles.providerGreetingCard}>
-                <Text style={styles.providerGreetingText}>Welcome Back, Sai 💼</Text>
-                <Text style={styles.providerSubText}>Here is your real-time recruitment overview</Text>
               </View>
 
-              {/* Hiring Overview Metric Grid */}
-              <View style={styles.metricsGrid}>
-                {[
-                  { label: 'Active Jobs', value: '3 Live', color: Colors.saffron, bg: Colors.saffronLight, icon: 'briefcase' },
-                  { label: 'Applicants Today', value: '14 New', color: '#1E88E5', bg: '#E3F2FD', icon: 'people' },
-                  { label: 'Pending Reviews', value: '8 Review', color: '#F57C00', bg: '#FFF3E0', icon: 'time' },
-                  { label: 'Hiring Speed', value: '92% Rate', color: '#43A047', bg: '#E8F5E9', icon: 'flash' },
-                ].map((metric) => (
-                  <View key={metric.label} style={styles.metricCard}>
-                    <View style={styles.metricHeader}>
-                      <Text style={styles.metricLabel}>{metric.label}</Text>
-                      <View style={[styles.metricIconBox, { backgroundColor: metric.bg }]}>
-                        <Ionicons name={metric.icon as any} size={16} color={metric.color} />
-                      </View>
-                    </View>
-                    <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
+              {/* Row 2: Dedicated Spacious Location Capsule */}
+              <TouchableOpacity
+                style={styles.locationCapsulePremium}
+                activeOpacity={0.85}
+                onPress={() => router.push('/location/saved-addresses')}
+              >
+                <View style={styles.locationCapsuleLeft}>
+                  <View style={styles.locationPinCirclePremium}>
+                    <Ionicons name="compass" size={15} color={Colors.saffron} />
                   </View>
-                ))}
-              </View>
 
-              <TouchableOpacity style={[styles.providerPostCta, Shadow.sm]} activeOpacity={0.85} onPress={() => router.push('/job/post' as any)}>
-                <View style={styles.providerCtaIcon}>
-                  <Ionicons name="add" size={24} color={Colors.white} />
+                  <View style={styles.locationDetails}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Text style={styles.locationLabelTextPremium}>YOUR ACTIVE GIG ZONE</Text>
+                      <Animated.View style={[styles.locationLivePulseDot, { opacity: liveDotOpacity }]} />
+                    </View>
+                    <Text style={styles.locationAddressTextPremium} numberOfLines={1} ellipsizeMode="tail">
+                      {completeAddress}
+                    </Text>
+                  </View>
                 </View>
-                <Text style={styles.providerCtaText}>Post a New Gig Listing Instantly</Text>
+                <Ionicons name="chevron-down" size={14} color="rgba(255, 255, 255, 0.5)" style={{ marginRight: 2 }} />
               </TouchableOpacity>
 
-              <View style={styles.providerSectionHeader}>
-                <Text style={styles.providerSectionTitle}>Recent Applicants</Text>
-                <TouchableOpacity onPress={() => router.push('/(tabs)/my-jobs' as any)}>
-                  <Text style={styles.providerViewAll}>View All</Text>
+            </LinearGradient>
+
+            {/* Seeker search bar or spacer */}
+            {activeViewRole === 'seeker' ? (
+              <Animated.View style={[styles.searchContainerAiry, { opacity: searchFade, transform: [{ scale: searchScale }] }]}>
+                <TouchableOpacity
+                  style={styles.searchBarAiry}
+                  activeOpacity={0.85}
+                  onPress={() => router.push('/search')}
+                >
+                  <Ionicons name="search" size={20} color={Colors.saffron} style={styles.searchIconAiry} />
+                  <AnimatedPlaceholder active={false} />
+
+                  <View style={styles.jobsBadgeAiry}>
+                    <View style={styles.pulseDotAiry} />
+                    <Text style={styles.jobsBadgeTextAiry}>{filteredJobs.length} nearby</Text>
+                  </View>
                 </TouchableOpacity>
-              </View>
+              </Animated.View>
+            ) : (
+              <View style={{ height: 16 }} />
+            )}
+          </View>
 
-              <View style={styles.applicantsList}>
-                {[
-                  { id: 'app-001', name: 'Raju Kumar', rating: 4.7, distance: '1.2 km away', skills: ['Delivery', 'Driver'], completed: 18, color: '#FFB300' },
-                  { id: 'app-002', name: 'Suresh Mani', rating: 4.2, distance: '0.5 km away', skills: ['Warehouse', 'Labour'], completed: 7, color: '#FF7043' },
-                ].map((appl) => (
-                  <View key={appl.id} style={styles.applicantRowCard}>
-                    <View style={styles.applicantRowHeader}>
-                      <View style={styles.applicantAvatarBox}>
-                        <Text style={styles.applicantAvatarText}>{appl.name.charAt(0)}</Text>
+          {/* Dynamic content wrapper — child[1]: pre-sticky content with role crossfade */}
+          <Animated.View style={{ opacity: roleFade }}>
+            {activeViewRole === 'seeker' ? (
+              // Seeker: show suggestions only (rest moves to child[2] and child[3])
+              suggestedJobs.length > 0 ? (
+                <View style={styles.spotlightContainer}>
+                  {/* Header */}
+                  <View style={styles.spotlightTitleRow}>
+                    <View>
+                      <Text style={styles.spotlightTitle}>💡 Suggested For You</Text>
+                      <Text style={styles.spotlightSubtitle}>Based on your skills & location</Text>
+                    </View>
+                    <TouchableOpacity style={styles.spotlightTrackerWidget} activeOpacity={0.8} onPress={openTrackerModal}>
+                      <View style={styles.spotlightTrackerIconCircle}>
+                        <Ionicons name="briefcase-outline" size={13} color={Colors.saffron} />
+                        <View style={styles.spotlightBtnBadgeDot} />
                       </View>
-                      <View style={styles.applicantRowInfo}>
-                        <Text style={styles.applicantRowName}>{appl.name}</Text>
-                        <Text style={styles.applicantRowMeta}>⭐ {appl.rating.toFixed(1)} • {appl.completed} Gigs Completed • {appl.distance}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.applicantSkillsGrid}>
-                      {appl.skills.map(sk => (
-                        <View key={sk} style={styles.skillPillBox}>
-                          <Text style={styles.skillPillText}>{sk}</Text>
-                        </View>
-                      ))}
-                    </View>
-                    <View style={styles.applicantRowActions}>
-                      <TouchableOpacity style={[styles.applicantRowBtn, styles.btnShortlist]} onPress={() => useUIStore.getState().showToast(`${appl.name} Shortlisted!`, 'success')}>
-                        <Text style={styles.btnShortlistText}>Shortlist</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.applicantRowBtn} onPress={() => useUIStore.getState().showToast(`Calling ${appl.name}...`, 'info')}>
-                        <Text style={styles.btnActionText}>Call</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.applicantRowBtn} onPress={() => router.push('/(tabs)/inbox' as any)}>
-                        <Text style={styles.btnActionText}>Chat</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.applicantRowBtn, styles.btnReject]} onPress={() => useUIStore.getState().showToast('Application archived', 'info')}>
-                        <Text style={styles.btnRejectText}>Reject</Text>
-                      </TouchableOpacity>
-                    </View>
+                      <Text style={styles.spotlightTrackerLabel}>My Status</Text>
+                    </TouchableOpacity>
                   </View>
-                ))}
-              </View>
+                  {/* Card list */}
+                  <FlatList
+                    horizontal
+                    data={suggestedJobs}
+                    keyExtractor={(item) => item.id}
+                    showsHorizontalScrollIndicator={false}
+                    snapToInterval={252}
+                    decelerationRate="fast"
+                    snapToAlignment="start"
+                    contentContainerStyle={styles.spotlightList}
+                    renderItem={({ item, index }) => {
+                      const matchPct = [98, 95, 92, 88][index] ?? 85;
+                      const catInfo = CATEGORIES.find(c => c.id === item.category) || { iconName: 'briefcase-outline' };
+                      return (
+                        <StaggeredCard
+                          index={index}
+                          style={styles.spotlightCard}
+                          activeOpacity={0.93}
+                          onPress={() => router.push(`/job/${item.id}` as any)}
+                        >
+                          {/* Row 1: Icon  +  Job Title */}
+                          <View style={styles.scRow1}>
+                            <View style={styles.scIconBox}>
+                              <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
+                            </View>
+                            <Text style={styles.scTitle} numberOfLines={2}>{item.title}</Text>
+                          </View>
+                          {/* Row 2: Provider + Rating  |  Match % */}
+                          <View style={styles.scRow2}>
+                            <View style={styles.scProviderGroup}>
+                              <Text style={styles.scProvider} numberOfLines={1}>{item.poster_name}</Text>
+                              <View style={styles.scRating}>
+                                <Ionicons name="star" size={10} color={Colors.gold} />
+                                <Text style={styles.scRatingText}> {item.poster_rating}</Text>
+                              </View>
+                            </View>
+                            <View style={styles.scMatchBadge}>
+                              <Text style={styles.scMatchText}>{matchPct}% match</Text>
+                            </View>
+                          </View>
+                          {/* Divider */}
+                          <View style={styles.scDivider} />
+                          {/* Row 3: Pay  +  Distance  +  Apply */}
+                          <View style={styles.scFooter}>
+                            <View style={styles.scPayBlock}>
+                              <Text style={styles.scPay}>₹{item.pay_amount}</Text>
+                              <Text style={styles.scPaySub}>/{item.pay_type}</Text>
+                            </View>
+                            <View style={styles.scDistBlock}>
+                              <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
+                              <Text style={styles.scDist}>{item.distance_km?.toFixed(1)}km</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.scApplyBtn}
+                              activeOpacity={0.82}
+                              onPress={() => router.push(`/job/${item.id}` as any)}
+                            >
+                              <Text style={styles.scApplyText}>Apply</Text>
+                              <Ionicons name="arrow-forward" size={11} color={Colors.white} style={{ marginLeft: 3 }} />
+                            </TouchableOpacity>
+                          </View>
+                        </StaggeredCard>
+                      );
+                    }}
+                  />
+                </View>
+              ) : null
+            ) : (
+              // ============ JOB PROVIDER WORKFLOW ============
+              <View style={styles.providerContainer}>
+                {/* Personalized Greeting */}
+                <View style={styles.providerGreetingCard}>
+                  <Text style={styles.providerGreetingText}>Welcome Back, Sai 💼</Text>
+                  <Text style={styles.providerSubText}>Here is your real-time recruitment overview</Text>
+                </View>
 
-              <View style={styles.providerSectionHeader}>
-                <Text style={styles.providerSectionTitle}>Active Job Listings</Text>
-              </View>
-              <View style={styles.listingsGrid}>
-                {[
-                  { title: 'Delivery Partner Needed', views: 128, apps: 14, conv: '88%' },
-                  { title: 'Warehouse Helper Needed', views: 45, apps: 3, conv: '40%' },
-                ].map((lst, i) => (
-                  <View key={i} style={styles.listingMetricCard}>
-                    <View style={styles.listingMetricHead}>
-                      <Text style={styles.listingMetricTitle} numberOfLines={1}>{lst.title}</Text>
-                      <View style={styles.liveIndicatorPill}>
-                        <View style={styles.liveDotCircle} />
-                        <Text style={styles.liveIndicatorText}>Live</Text>
-                      </View>
-                    </View>
-                    <View style={styles.listingStatsRow}>
-                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.views}</Text><Text style={styles.statMetricLbl}>Views</Text></View>
-                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.apps}</Text><Text style={styles.statMetricLbl}>Applicants</Text></View>
-                      <View style={styles.statMetric}><Text style={styles.statMetricVal}>{lst.conv}</Text><Text style={styles.statMetricLbl}>Conversion</Text></View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-
-              <View style={styles.providerSectionHeader}>
-                <Text style={styles.providerSectionTitle}>Hiring Analytics</Text>
-              </View>
-              <View style={styles.analyticsBarCard}>
-                <Text style={styles.analyticsBarCardSub}>Applicants Received (Weekly trend)</Text>
-                <View style={styles.barGraphContainer}>
+                {/* Hiring Overview Metric Grid */}
+                <View style={styles.metricsGrid}>
                   {[
-                    { day: 'Mon', count: 12, height: 35 },
-                    { day: 'Tue', count: 24, height: 70 },
-                    { day: 'Wed', count: 18, height: 50 },
-                    { day: 'Thu', count: 32, height: 95 },
-                    { day: 'Fri', count: 15, height: 45 },
-                  ].map((item, idx) => (
-                    <View key={idx} style={styles.graphCol}>
-                      <Text style={styles.graphColVal}>{item.count}</Text>
-                      <View style={[styles.graphBarBody, { height: item.height }]} />
-                      <Text style={styles.graphColDay}>{item.day}</Text>
+                    { label: 'Active Jobs', value: `${myPostedJobs.filter(j => j.status === 'live').length} Live`, color: Colors.saffron, bg: Colors.saffronLight, icon: 'briefcase' },
+                    { label: 'Applicants', value: `${receivedApplications.length} Total`, color: '#1E88E5', bg: '#E3F2FD', icon: 'people' },
+                    { label: 'Pending Reviews', value: `${receivedApplications.filter(a => a.status === 'pending').length} Review`, color: '#F57C00', bg: '#FFF3E0', icon: 'time' },
+                    { label: 'Hiring Speed', value: '92% Rate', color: '#43A047', bg: '#E8F5E9', icon: 'flash' },
+                  ].map((metric) => (
+                    <View key={metric.label} style={styles.metricCard}>
+                      <View style={styles.metricHeader}>
+                        <Text style={styles.metricLabel}>{metric.label}</Text>
+                        <View style={[styles.metricIconBox, { backgroundColor: metric.bg }]}>
+                          <Ionicons name={metric.icon as any} size={16} color={metric.color} />
+                        </View>
+                      </View>
+                      <Text style={[styles.metricValue, { color: metric.color }]}>{metric.value}</Text>
                     </View>
                   ))}
                 </View>
+
+                <TouchableOpacity style={[styles.providerPostCta, Shadow.sm]} activeOpacity={0.85} onPress={() => router.push('/job/post' as any)}>
+                  <View style={styles.providerCtaIcon}>
+                    <Ionicons name="add" size={24} color={Colors.white} />
+                  </View>
+                  <Text style={styles.providerCtaText}>Post a New Gig Listing Instantly</Text>
+                </TouchableOpacity>
+
+                <View style={styles.providerSectionHeader}>
+                  <Text style={styles.providerSectionTitle}>Recent Applicants</Text>
+                  <TouchableOpacity onPress={() => router.push('/(tabs)/my-jobs' as any)}>
+                    <Text style={styles.providerViewAll}>View All</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.applicantsList}>
+                  {receivedApplications.slice(0, 3).map((appl) => {
+                    const applicantUser = (appl.applicant as any) || (user as any) || {};
+                    return (
+                      <View key={appl.id} style={styles.applicantRowCard}>
+                        <View style={styles.applicantRowHeader}>
+                          <View style={styles.applicantAvatarBox}>
+                            <Text style={styles.applicantAvatarText}>{applicantUser?.name?.charAt(0) ?? 'U'}</Text>
+                          </View>
+                          <View style={styles.applicantRowInfo}>
+                            <Text style={styles.applicantRowName}>{applicantUser?.name}</Text>
+                            <Text style={styles.applicantRowMeta}>⭐ {applicantUser.worker_rating?.toFixed(1) || '4.5'} • {applicantUser.jobs_completed || 0} Gigs Completed • 1.2 km away</Text>
+                          </View>
+                        </View>
+                        <View style={styles.applicantSkillsGrid}>
+                          {(applicantUser.skills || []).slice(0, 3).map((sk: string) => (
+                            <View key={sk} style={styles.skillPillBox}>
+                              <Text style={styles.skillPillText}>{sk}</Text>
+                            </View>
+                          ))}
+                        </View>
+                        <View style={styles.applicantRowActions}>
+                          <TouchableOpacity style={[styles.applicantRowBtn, styles.btnShortlist]} onPress={() => {
+                            updateApplicationStatus(appl.id, 'accepted');
+                            useUIStore.getState().showToast(`${applicantUser.name} Accepted!`, 'success');
+                          }}>
+                            <Text style={styles.btnShortlistText}>Accept</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.applicantRowBtn} onPress={() => useUIStore.getState().showToast(`Calling ${applicantUser.name}...`, 'info')}>
+                            <Text style={styles.btnActionText}>Call</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.applicantRowBtn} onPress={() => router.push('/(tabs)/inbox' as any)}>
+                            <Text style={styles.btnActionText}>Chat</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.applicantRowBtn, styles.btnReject]} onPress={() => {
+                            updateApplicationStatus(appl.id, 'rejected');
+                            useUIStore.getState().showToast('Application rejected', 'info');
+                          }}>
+                            <Text style={styles.btnRejectText}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )
+                  })}
+                </View>
+
+
               </View>
+            )}
+          </Animated.View>
+
+          {/* child[2]: Inline header OR fixed spacer — spacer keeps scroll offset stable when pinned */}
+          {activeViewRole === 'seeker' ? (
+            isHeaderStuck ? (
+              <View style={{ height: PINNED_CHROME_HEIGHT }} />
+            ) : (
+              renderSeekerChrome('inline')
+            )
+          ) : (
+            <View />
+          )}
+
+          {/* child[3]: Job cards — only for seeker */}
+          {activeViewRole === 'seeker' && (
+            <View
+              style={[
+                styles.jobListContainer,
+                {
+                  minHeight: jobListMinHeight,
+                  paddingTop: JOB_LIST_TOP_GAP,
+                }
+              ]}
+            >
+              {isLoadingJobs && !jobsData
+                ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
+                : paginatedJobs.length === 0
+                  ? renderEmpty()
+                  : paginatedJobs.map((job: any) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      onPress={(j) => router.push(`/job/${j.id}` as any)}
+                      onApply={(j) => router.push(`/job/${j.id}` as any)}
+                    />
+                  ))
+              }
+              {renderFooter()}
             </View>
           )}
-        </Animated.View>
+        </Animated.ScrollView>
 
-        {/* child[2]: Inline header OR fixed spacer — spacer keeps scroll offset stable when pinned */}
-        {activeViewRole === 'seeker' ? (
-          isHeaderStuck ? (
-            <View style={{ height: PINNED_CHROME_HEIGHT }} />
-          ) : (
-            renderSeekerChrome('inline')
-          )
-        ) : (
-          <View />
-        )}
-
-        {/* child[3]: Job cards — only for seeker */}
-        {activeViewRole === 'seeker' && (
-          <View
-            style={[
-              styles.jobListContainer,
-              {
-                minHeight: jobListMinHeight,
-                paddingTop: JOB_LIST_TOP_GAP,
-              }
-            ]}
-          >
-            {isLoadingJobs && !jobsData
-              ? [1, 2, 3].map((i) => <JobCardSkeleton key={i} />)
-              : paginatedJobs.length === 0
-                ? renderEmpty()
-                : paginatedJobs.map((job: any) => (
-                  <JobCard
-                    key={job.id}
-                    job={job}
-                    onPress={(j) => router.push(`/job/${j.id}` as any)}
-                    onApply={(j) => router.push(`/job/${j.id}` as any)}
-                  />
-                ))
-            }
-            {renderFooter()}
+        {/* Fixed chrome — outside ScrollView so category taps never shift layout */}
+        {activeViewRole === 'seeker' && isHeaderStuck && (
+          <View style={[styles.pinnedChromeOverlay, { pointerEvents: "box-none" }]}>
+            <View style={[styles.pinnedChromeOverlayInner, { pointerEvents: "auto" }]}>
+              {renderSeekerChrome('pinned')}
+            </View>
           </View>
         )}
-      </Animated.ScrollView>
-
-      {/* Fixed chrome — outside ScrollView so category taps never shift layout */}
-      {activeViewRole === 'seeker' && isHeaderStuck && (
-        <View style={styles.pinnedChromeOverlay} pointerEvents="box-none">
-          <View style={styles.pinnedChromeOverlayInner} pointerEvents="auto">
-            {renderSeekerChrome('pinned')}
-          </View>
-        </View>
-      )}
       </View>
 
       {/* ── Bottom nav — hides on scroll down, shows on scroll up ── */}
@@ -1250,8 +1162,7 @@ export default function HomeScreen() {
             style={[
               styles.modalOverlay,
               { opacity: trackerModalAnim }
-            ]}
-            pointerEvents="box-none"
+              , { pointerEvents: "box-none" }]}
           >
             <Pressable style={StyleSheet.absoluteFill} onPress={closeTrackerModal} />
 
@@ -1287,7 +1198,7 @@ export default function HomeScreen() {
                 contentContainerStyle={styles.trackerTabsScroll}
                 style={{ marginBottom: 16 }}
               >
-                {MOCK_ACTIVE_APPLICATIONS.map((app, idx) => (
+                {useApplicationStore.getState().myApplications.slice(0, 5).map((app, idx) => (
                   <TouchableOpacity
                     key={app.id}
                     style={[
@@ -1301,9 +1212,9 @@ export default function HomeScreen() {
                       styles.trackerTabBtnText,
                       activeAppIndex === idx && styles.trackerTabBtnTextActive
                     ]}>
-                      {app.title}
+                      {app.job?.title || 'Job Application'}
                     </Text>
-                    {app.hasActionBadge && (
+                    {app.status === 'accepted' && (
                       <View style={styles.trackerTabBadgePulse} />
                     )}
                   </TouchableOpacity>
@@ -1312,114 +1223,74 @@ export default function HomeScreen() {
 
               {/* Application Details */}
               {(() => {
-                const currentApp = MOCK_ACTIVE_APPLICATIONS[activeAppIndex] || MOCK_ACTIVE_APPLICATIONS[0];
+                const currentApp = useApplicationStore.getState().myApplications[activeAppIndex] || useApplicationStore.getState().myApplications[0];
+                if (!currentApp) return <Text style={{padding: 20, textAlign: 'center'}}>No active applications</Text>;
                 return (
                   <View style={styles.trackerJobCard}>
                     <View style={styles.trackerJobHeader}>
-                      <Text style={styles.trackerJobTitle}>{currentApp.title}</Text>
+                      <Text style={styles.trackerJobTitle}>{currentApp.job?.title || 'Unknown Job'}</Text>
                       <View style={[
                         styles.trackerStatusBadge,
-                        currentApp.statusType === 'review' && styles.trackerBadgeBlue,
-                        currentApp.statusType === 'offer' && styles.trackerBadgeGreen,
+                        currentApp.status === 'pending' && styles.trackerBadgeBlue,
+                        currentApp.status === 'accepted' && styles.trackerBadgeGreen,
                       ]}>
                         <Text style={[
                           styles.trackerStatusText,
-                          currentApp.statusType === 'review' && styles.trackerStatusTextBlue,
-                          currentApp.statusType === 'offer' && styles.trackerStatusTextGreen,
+                          currentApp.status === 'pending' && styles.trackerStatusTextBlue,
+                          currentApp.status === 'accepted' && styles.trackerStatusTextGreen,
                         ]}>
-                          {currentApp.statusText}
+                          {currentApp.status.toUpperCase()}
                         </Text>
                       </View>
                     </View>
-                    <Text style={styles.trackerJobCompany}>{currentApp.company} • {currentApp.pay}</Text>
+                    
+                    <Text style={styles.trackerJobCompany}>
+                      <Ionicons name="business-outline" size={12} color={Colors.gray2} /> {currentApp.job?.poster_name || 'Employer'} • {currentApp.job?.pay_amount ? `₹${currentApp.job.pay_amount}` : 'TBD'}
+                    </Text>
 
                     {/* Visual Timeline (Horizontal Stepper) */}
                     <View style={styles.stepperContainerHorizontal}>
-                      {/* Connected background lines */}
                       <View style={styles.stepperProgressTrack}>
                         <View style={[
                           styles.stepperProgressFill,
-                          {
-                            width:
-                              currentApp.steps.findIndex(s => s.status === 'active') !== -1
-                                ? `${(currentApp.steps.findIndex(s => s.status === 'active') / 3) * 100}%`
-                                : currentApp.steps.every(s => s.status === 'completed')
-                                  ? '100%'
-                                  : '0%'
-                          },
-                          currentApp.statusType === 'review' && styles.stepperFillBlue,
-                          currentApp.statusType === 'offer' && styles.stepperFillGreen,
+                          { width: currentApp.status === 'accepted' ? '100%' : '50%' },
+                          currentApp.status === 'accepted' && styles.stepperFillGreen,
                         ]} />
                       </View>
 
-                      {currentApp.steps.map((step, idx) => {
-                        const isCompleted = step.status === 'completed';
-                        const isActive = step.status === 'active';
+                      <View style={styles.stepperStepItem}>
+                        <View style={[styles.stepperIconCircle, styles.stepperIconCircleCompleted]}>
+                          <Ionicons name="document-text-outline" size={15} color={Colors.white} />
+                        </View>
+                        <Text style={[styles.stepperStepLabel, styles.stepperStepLabelCompleted]} numberOfLines={1}>Applied</Text>
+                      </View>
 
-                        return (
-                          <View key={idx} style={styles.stepperStepItem}>
-                            {/* Circle Container */}
-                            <View style={[
-                              styles.stepperIconCircle,
-                              isCompleted && (
-                                currentApp.statusType === 'review' ? styles.stepperIconCircleCompletedBlue :
-                                  currentApp.statusType === 'offer' ? styles.stepperIconCircleCompletedGreen :
-                                    styles.stepperIconCircleCompleted
-                              ),
-                              isActive && (
-                                currentApp.statusType === 'review' ? styles.stepperIconCircleActiveBlue :
-                                  currentApp.statusType === 'offer' ? styles.stepperIconCircleActiveGreen :
-                                    styles.stepperIconCircleActive
-                              )
-                            ]}>
-                              <Ionicons
-                                name={step.iconName as any}
-                                size={15}
-                                color={
-                                  isCompleted ? Colors.white :
-                                    isActive ? (
-                                      currentApp.statusType === 'review' ? '#1E88E5' :
-                                        currentApp.statusType === 'offer' ? '#2E7D32' :
-                                          Colors.saffronDark
-                                    ) : Colors.gray4
-                                }
-                              />
-                            </View>
-
-                            {/* Label */}
-                            <Text style={[
-                              styles.stepperStepLabel,
-                              isActive && (
-                                currentApp.statusType === 'review' ? styles.stepperStepLabelActiveBlue :
-                                  currentApp.statusType === 'offer' ? styles.stepperStepLabelActiveGreen :
-                                    styles.stepperStepLabelActive
-                              ),
-                              isCompleted && styles.stepperStepLabelCompleted,
-                            ]} numberOfLines={1}>
-                              {step.label}
-                            </Text>
-
-                            {/* Date */}
-                            <Text style={styles.stepperStepDate}>
-                              {step.date}
-                            </Text>
-                          </View>
-                        );
-                      })}
+                      <View style={styles.stepperStepItem}>
+                        <View style={[
+                          styles.stepperIconCircle,
+                          currentApp.status === 'accepted' ? styles.stepperIconCircleCompletedGreen : styles.stepperIconCircleActive
+                        ]}>
+                          <Ionicons name={currentApp.status === 'accepted' ? "gift-outline" : "hourglass-outline"} size={15} color={currentApp.status === 'accepted' ? Colors.white : Colors.saffronDark} />
+                        </View>
+                        <Text style={[
+                          styles.stepperStepLabel,
+                          currentApp.status === 'accepted' ? styles.stepperStepLabelCompleted : styles.stepperStepLabelActive
+                        ]} numberOfLines={1}>{currentApp.status === 'accepted' ? 'Accepted' : currentApp.status === 'rejected' ? 'Rejected' : 'Pending'}</Text>
+                      </View>
                     </View>
 
                     {/* Footer scheduled details card */}
                     <View style={[
                       styles.trackerScheduleAlert,
-                      currentApp.statusType === 'review' && styles.trackerAlertBlue,
-                      currentApp.statusType === 'offer' && styles.trackerAlertGreen,
+                      currentApp.status === 'pending' && styles.trackerAlertBlue,
+                      currentApp.status === 'accepted' && styles.trackerAlertGreen,
                     ]}>
                       <Ionicons
-                        name={currentApp.alertIcon as any}
+                        name="information-circle-outline"
                         size={18}
                         color={
-                          currentApp.statusType === 'review' ? '#1E88E5' :
-                            currentApp.statusType === 'offer' ? '#2E7D32' :
+                          currentApp.status === 'pending' ? '#1E88E5' :
+                            currentApp.status === 'accepted' ? '#2E7D32' :
                               Colors.saffronDark
                         }
                         style={{ marginRight: 8, marginTop: 2 }}
@@ -1427,14 +1298,16 @@ export default function HomeScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={[
                           styles.trackerAlertTitle,
-                          currentApp.statusType === 'review' && styles.trackerAlertTitleBlue,
-                          currentApp.statusType === 'offer' && styles.trackerAlertTitleGreen,
-                        ]}>{currentApp.alertTitle}</Text>
+                          currentApp.status === 'pending' && styles.trackerAlertTitleBlue,
+                          currentApp.status === 'accepted' && styles.trackerAlertTitleGreen,
+                        ]}>Application Status</Text>
                         <Text style={[
                           styles.trackerAlertText,
-                          currentApp.statusType === 'review' && styles.trackerAlertTextBlue,
-                          currentApp.statusType === 'offer' && styles.trackerAlertTextGreen,
-                        ]}>{currentApp.alertText}</Text>
+                          currentApp.status === 'pending' && styles.trackerAlertTextBlue,
+                          currentApp.status === 'accepted' && styles.trackerAlertTextGreen,
+                        ]}>
+                          {currentApp.status === 'pending' ? 'Your application has been received and is waiting for employer review.' : `The employer has marked your application as ${currentApp.status}.`}
+                        </Text>
                       </View>
                     </View>
 
@@ -1442,24 +1315,15 @@ export default function HomeScreen() {
                     <TouchableOpacity
                       style={[
                         styles.trackerActionBtn,
-                        currentApp.statusType === 'review' && styles.trackerActionBtnBlue,
-                        currentApp.statusType === 'offer' && styles.trackerActionBtnGreen,
+                        currentApp.status === 'pending' && styles.trackerActionBtnBlue,
+                        currentApp.status === 'accepted' && styles.trackerActionBtnGreen,
                       ]}
                       activeOpacity={0.8}
                       onPress={() => {
                         closeTrackerModal();
-                        if (currentApp.ctaAction === 'directions') {
-                          useUIStore.getState().showToast('Directions & Info sent to WhatsApp!', 'success');
-                        } else if (currentApp.ctaAction === 'call') {
-                          Linking.openURL('tel:+919876543210').catch(() => {
-                            useUIStore.getState().showToast('Unable to place phone call.', 'error');
-                          });
-                        } else if (currentApp.ctaAction === 'accept') {
-                          useUIStore.getState().showToast('Gig offer accepted successfully!', 'success');
-                        }
                       }}
                     >
-                      <Text style={styles.trackerActionBtnText}>{currentApp.ctaText}</Text>
+                      <Text style={styles.trackerActionBtnText}>Close</Text>
                       <Ionicons name="arrow-forward" size={14} color={Colors.white} style={{ marginLeft: 6 }} />
                     </TouchableOpacity>
                   </View>
@@ -1479,8 +1343,7 @@ export default function HomeScreen() {
             style={[
               styles.modalOverlay,
               { opacity: modalAnim }
-            ]}
-            pointerEvents="box-none"
+              , { pointerEvents: "box-none" }]}
           >
             <Pressable style={StyleSheet.absoluteFill} onPress={closeLangModal} />
 
@@ -1634,11 +1497,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     zIndex: 100,
     marginTop: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
+    boxShadow: "0px 2px 12px rgba(0,0,0,0.04)",
   },
   seekerChromeInline: {
     paddingTop: 6,
@@ -1659,11 +1518,7 @@ const styles = StyleSheet.create({
   pinnedChromeOverlayInner: {
     flex: 1,
     backgroundColor: Colors.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    boxShadow: "0px 2px 16px rgba(0,0,0,0.06)",
     overflow: 'visible',
   },
   radiusDistanceBadge: {
@@ -1698,11 +1553,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderBottomWidth: 1.5,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)', // Dark subtle boundary border
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 3,
+    boxShadow: "0px 6px 24px rgba(0,0,0,0.12)",
   },
   headerTopRowPremium: {
     flexDirection: 'row',
@@ -1739,11 +1590,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 6,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 6,
-    elevation: 4,
+    boxShadow: "0px 0px 12px rgba(255,107,0,0.6)",
   },
   brandTextPremium: {
     fontFamily: FontFamily.headingBold,
@@ -1768,11 +1615,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 6,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
-    elevation: 5,
+    boxShadow: "0px 0px 16px rgba(255,107,0,0.8)",
   },
   controlsRow: {
     flexDirection: 'row',
@@ -1860,11 +1703,7 @@ const styles = StyleSheet.create({
     marginTop: 12, // Slightly moved up to optimize spacing
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 3,
+    boxShadow: "0px 4px 16px rgba(0,0,0,0.12)",
     zIndex: 2,
   },
   locationCapsuleLeft: {
@@ -1930,10 +1769,7 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     backgroundColor: '#10B981', // Premium active emerald green
     marginLeft: 5,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 3,
+    boxShadow: "0px 0px 6px rgba(16,185,129,0.6)",
   },
   locationAddressText: {
     fontFamily: FontFamily.bodySemiBold,
@@ -1961,11 +1797,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.round, // Pill shape
     paddingHorizontal: 16,
     height: 48, // Compact and sleek height
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    elevation: 8, // Floating high-depth shadow
+    boxShadow: "0px 8px 40px rgba(0,0,0,0.08)", // Floating high-depth shadow
   },
   searchIconAiry: {
     marginRight: 12,
@@ -2009,11 +1841,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
     paddingBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 8,
+    boxShadow: "0px -4px 20px rgba(0,0,0,0.1)",
   },
   langSheetTitle: {
     fontFamily: FontFamily.headingBold,
@@ -2356,11 +2184,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EAEAEA',
     // Soft premium neutral shadow
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    elevation: 2,
+    boxShadow: "0px 4px 24px rgba(0,0,0,0.04)",
   },
   spotlightHeader: {
     flexDirection: 'row',
@@ -2461,11 +2285,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.saffron,
     paddingVertical: 9,
     borderRadius: Radius.sm,
-    shadowColor: '#FF6B00',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 4,
+    boxShadow: "0px 5px 24px rgba(255,107,0,0.3)",
   },
   spotlightApplyText: {
     fontFamily: FontFamily.bodySemiBold,
@@ -2590,11 +2410,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: Radius.sm,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    boxShadow: "0px 2px 8px rgba(255,107,0,0.15)",
   },
   scApplyText: {
     fontFamily: FontFamily.bodySemiBold,

@@ -93,11 +93,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 3,
     borderColor: Colors.white,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
+    boxShadow: '0px 4px 16px rgba(255,107,0,0.5)',
   },
   pinInner: {
     width: 12,

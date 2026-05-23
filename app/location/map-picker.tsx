@@ -209,7 +209,7 @@ export default function MapPickerScreen() {
       />
 
       {/* Center pin — works on both native and web */}
-      <View style={styles.centerPinWrapper} pointerEvents="none">
+      <View style={[styles.centerPinWrapper, { pointerEvents: "none" }]}>
         <Animated.View
           style={[
             styles.pinContainer,
@@ -387,11 +387,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.2)",
   },
   tooltipText: {
     fontFamily: FontFamily.bodySemiBold,
@@ -420,11 +416,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 3,
     borderColor: Colors.white,
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
-    shadowRadius: 8,
-    elevation: 8,
+    boxShadow: "0px 4px 16px rgba(255,107,0,0.5)",
   },
   pinDot: {
     width: 12,
@@ -472,11 +464,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
+    boxShadow: "0px 2px 12px rgba(0,0,0,0.1)",
   },
   searchBox: {
     flex: 1,
@@ -488,11 +476,7 @@ const styles = StyleSheet.create({
     height: 46,
     borderWidth: 1.5,
     borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 4,
+    boxShadow: "0px 2px 12px rgba(0,0,0,0.08)",
   },
   searchBoxFocused: {
     borderColor: ACCENT,
@@ -511,11 +495,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     borderRadius: 16,
     maxHeight: 280,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 8,
+    boxShadow: "0px 4px 24px rgba(0,0,0,0.12)",
     overflow: 'hidden',
   },
   dropdownHeader: {
@@ -565,11 +545,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
+    boxShadow: "0px 3px 16px rgba(0,0,0,0.15)",
   },
 
   // Bottom sheet
@@ -582,11 +558,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: Platform.OS === 'ios' ? 36 : 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 12,
+    boxShadow: "0px -4px 32px rgba(0,0,0,0.1)",
     zIndex: 10,
   },
   sheetHandle: {
@@ -636,11 +608,7 @@ const styles = StyleSheet.create({
     backgroundColor: ACCENT,
     borderRadius: Radius.round,
     height: 54,
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 6,
+    boxShadow: "0px 4px 20px rgba(255,107,0,0.3)",
   },
   confirmBtnDisabled: { opacity: 0.6 },
   confirmBtnText: {

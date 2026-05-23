@@ -81,11 +81,7 @@ const styles = StyleSheet.create({
     width: 68,
     backgroundColor: Colors.saffron ?? '#FF6B00',
     borderRadius: Radius.round ?? 18,
-    shadowColor: Colors.saffron ?? '#FF6B00',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 3,
+    boxShadow: '0px 2px 8px rgba(255,107,0,0.35)',
   },
   btn: {
     flex: 1,

@@ -18,10 +18,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow } from '../../src/theme';
 import { Avatar } from '../../src/components/atoms/Avatar';
-import { BottomNav } from '../../src/components/organisms/BottomNav';
+import { BlurView } from 'expo-blur';
+import Reanimated, { FadeInDown } from 'react-native-reanimated';
+import { useApplicationStore } from '../../src/store/applicationStore';
 import { useAuthStore } from '../../src/store/authStore';
 import { useUIStore } from '../../src/store/uiStore';
-import { MOCK_RATINGS } from '../../src/services/mockData';
+import { BottomNav } from '../../src/components/organisms/BottomNav';
+import { TrustScoreRing } from '../../src/components/molecules/TrustScoreRing';
+import { calculateTrustScore, generateBadges } from '../../src/utils/trustScore';
 
 const { width } = Dimensions.get('window');
 
@@ -35,15 +39,17 @@ export default function ProfileScreen() {
   const { currentRole, showToast } = useUIStore();
   const isSeeker = currentRole === 'seeker';
 
-  const TABS = isSeeker ? ['Overview', 'Skills', 'Reviews'] : ['Company', 'Listings', 'Team'];
+  const TABS = isSeeker ? ['Overview', 'Earnings', 'Reviews'] : ['Company', 'Listings', 'Team'];
   const tabWidth = (width - 32) / TABS.length;
 
   const [activeTab, setActiveTab] = useState(0);
   const [isEditing, setIsEditing] = useState(false);
-  
+
   // Seeker Edit State
   const [name, setName] = useState(user?.name ?? '');
   const [age, setAge] = useState(String(user?.age ?? ''));
+  const [bio, setBio] = useState(user?.bio ?? '');
+  const [language, setLanguage] = useState(user?.language ?? 'en');
   const [skills, setSkills] = useState<string[]>(user?.skills ?? []);
   const [locationName, setLocationName] = useState(user?.location_name ?? '');
 
@@ -89,7 +95,7 @@ export default function ProfileScreen() {
 
   const handleSave = () => {
     if (isSeeker) {
-      updateUser({ name, age: parseInt(age) || undefined, skills, location_name: locationName });
+      updateUser({ name, age: parseInt(age) || undefined, bio, language: language as any, skills, location_name: locationName });
     } else {
       showToast('Company profile details updated', 'success');
     }
@@ -99,7 +105,14 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert('Logout', 'Are you sure you want to logout?', [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: () => { logout(); router.replace('/(auth)/splash'); } },
+      {
+        text: 'Logout',
+        style: 'destructive',
+        onPress: () => {
+          logout();
+          router.replace('/(auth)/phone');
+        },
+      },
     ]);
   };
 
@@ -118,6 +131,7 @@ export default function ProfileScreen() {
   };
 
   // Rating Stats
+  const MOCK_RATINGS: any[] = [];
   const starCounts = [5, 4, 3, 2, 1].map((star) => ({
     star, count: MOCK_RATINGS.filter((r) => r.stars === star).length,
   }));
@@ -162,14 +176,16 @@ export default function ProfileScreen() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Personal Details</Text>
         </View>
-        
+
         {[
           { icon: 'person-outline', label: 'Full Name', value: name, editable: true, onEdit: setName },
           { icon: 'calendar-outline', label: 'Age', value: age, editable: true, onEdit: setAge, numeric: true },
+          { icon: 'document-text-outline', label: 'Bio', value: bio, editable: true, onEdit: setBio },
+          { icon: 'language-outline', label: 'Language', value: language, editable: true, onEdit: setLanguage },
           { icon: 'call-outline', label: 'Phone', value: user?.phone ?? '+91 ---', editable: false, note: 'Contact support to change' },
           { icon: 'location-outline', label: 'Location', value: locationName, editable: true, onEdit: setLocationName },
         ].map((row, idx) => (
-          <View key={idx} style={[styles.infoRow, idx === 3 && { borderBottomWidth: 0 }]}>
+          <View key={idx} style={[styles.infoRow, idx === 5 && { borderBottomWidth: 0 }]}>
             <View style={styles.infoIconBox}>
               <Ionicons name={row.icon as any} size={18} color={Colors.navy} />
             </View>
@@ -179,7 +195,7 @@ export default function ProfileScreen() {
                 <TextInput
                   style={styles.infoInput}
                   value={row.value}
-                  onChangeText={row.onEdit}
+                  onChangeText={row.onEdit as any}
                   keyboardType={(row as any).numeric ? 'number-pad' : 'default'}
                   placeholder={`Enter ${row.label.toLowerCase()}`}
                 />
@@ -191,15 +207,7 @@ export default function ProfileScreen() {
         ))}
       </View>
 
-      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-        <Ionicons name="log-out-outline" size={20} color={Colors.red} />
-        <Text style={styles.logoutBtnText}>Logout</Text>
-      </TouchableOpacity>
-    </Animated.View>
-  );
-
-  const renderSkills = () => (
-    <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      {/* Expertise / Skills moved into Overview */}
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Expertise</Text>
@@ -226,6 +234,66 @@ export default function ProfileScreen() {
             <Text style={styles.emptyText}>No skills added yet. Tap Edit Profile to add some.</Text>
           )}
         </View>
+      </View>
+
+      <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+        <Ionicons name="log-out-outline" size={20} color={Colors.red} />
+        <Text style={styles.logoutBtnText}>Logout</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderEarnings = () => (
+    <Animated.View style={[styles.tabContent, { opacity: fadeAnim }]}>
+      {/* Total Earnings Balance Card */}
+      <View style={[styles.seekerEarningsBalanceCard, Shadow.md]}>
+        <Text style={styles.earningsLabel}>TOTAL LIFE-TIME EARNINGS</Text>
+        <Text style={styles.earningsBalanceValue}>₹2,550</Text>
+        <View style={styles.earningsDivider} />
+        <View style={styles.earningsRow}>
+          <View>
+            <Text style={styles.earningSubLabel}>Current Month</Text>
+            <Text style={styles.earningSubVal}>₹1,050</Text>
+          </View>
+          <View style={styles.verticalDivider} />
+          <View>
+            <Text style={styles.earningSubLabel}>Pending Clearance</Text>
+            <Text style={[styles.earningSubVal, { color: Colors.gold }]}>₹450</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          style={styles.earningsWithdrawBtn}
+          onPress={() => showToast('Withdrawal successful! Amount credited to your UPI ID.', 'success')}
+        >
+          <Text style={styles.earningsWithdrawText}>Withdraw to UPI / Bank ⚡</Text>
+        </TouchableOpacity>
+      </View>
+
+      <Text style={styles.earningsHistoryTitle}>Earning Transactions</Text>
+      <View style={styles.earningsHistoryList}>
+        {[
+          { id: 'earn-001', jobTitle: 'Store Delivery Gig', date: 'May 18, 2026', amount: '₹450', status: 'Pending' },
+          { id: 'earn-002', jobTitle: 'Festival Event Host', date: 'May 12, 2026', amount: '₹1,500', status: 'Paid' },
+          { id: 'earn-003', jobTitle: 'Boutique Delivery Assistant', date: 'May 08, 2026', amount: '₹600', status: 'Paid' },
+        ].map((earn, index) => (
+          <Reanimated.View entering={FadeInDown.delay(index * 150).springify()} key={earn.id} style={[styles.earningRowCard, Shadow.xs]}>
+            <View style={styles.earningIconWrap}>
+              <Ionicons name={earn.status === 'Paid' ? "cash-outline" : "time-outline"} size={20} color={earn.status === 'Paid' ? Colors.green : Colors.gold} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.earningCardTitle}>{earn.jobTitle}</Text>
+              <Text style={styles.earningCardDate}>{earn.date}</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.earningCardAmount}>{earn.amount}</Text>
+              <View style={styles.earningCardStatus}>
+                <View style={[styles.liveDotCircle, { backgroundColor: earn.status === 'Paid' ? Colors.green : Colors.gold }]} />
+                <Text style={styles.earningCardStatusText}>{earn.status}</Text>
+              </View>
+            </View>
+          </Reanimated.View>
+        ))}
       </View>
     </Animated.View>
   );
@@ -260,7 +328,7 @@ export default function ProfileScreen() {
       </View>
 
       <Text style={styles.reviewsTitle}>Recent Reviews</Text>
-      {MOCK_RATINGS.map((rating) => (
+      {MOCK_RATINGS.length > 0 ? MOCK_RATINGS.map((rating) => (
         <View key={rating.id} style={styles.reviewCard}>
           <View style={styles.reviewHeader}>
             <Avatar name={rating.rater?.name} size="sm" />
@@ -276,7 +344,9 @@ export default function ProfileScreen() {
           </View>
           {rating.review_text && <Text style={styles.reviewText}>{rating.review_text}</Text>}
         </View>
-      ))}
+      )) : (
+        <Text style={styles.emptyText}>No reviews yet.</Text>
+      )}
     </Animated.View>
   );
 
@@ -424,7 +494,7 @@ export default function ProfileScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        
+
         {/* Cover Photo */}
         <View style={styles.coverPhoto}>
           <LinearGradient
@@ -459,6 +529,32 @@ export default function ProfileScreen() {
             <Ionicons name="location" size={14} color={Colors.gray4} /> {isSeeker ? (user?.location_name || 'Add Location') : branchLocation}
           </Text>
 
+          {/* Premium Trust & Badge Section */}
+          <View style={styles.trustSection}>
+            <View style={styles.badgesWrapper}>
+              <View style={styles.badgesRow}>
+                {generateBadges(user).slice(0, 3).map(badge => (
+                  <View key={badge} style={styles.premiumBadge}>
+                    <Text style={styles.premiumBadgeText}>{badge}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={styles.ratingOverviewRow}>
+                <Text style={styles.hugeRating}>{Math.max(user?.worker_rating || 0, user?.employer_rating || 0).toFixed(1)}</Text>
+                <View style={{ marginLeft: 8 }}>
+                  <View style={{ flexDirection: 'row', marginBottom: 2 }}>
+                    {[1, 2, 3, 4, 5].map(s => <Ionicons key={s} name="star" size={12} color={Colors.gold} />)}
+                  </View>
+                  <Text style={styles.reviewsCountTxt}>{user?.total_reviews || 0} Reviews</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.trustRingWrapper}>
+              <TrustScoreRing score={calculateTrustScore(user)} size={90} strokeWidth={8} />
+            </View>
+          </View>
+
           <View style={styles.actionButtonsRow}>
             {isEditing ? (
               <TouchableOpacity style={styles.primaryBtn} onPress={handleSave}>
@@ -471,7 +567,7 @@ export default function ProfileScreen() {
                 <Text style={styles.primaryBtnText}>Edit Profile</Text>
               </TouchableOpacity>
             )}
-            
+
             <TouchableOpacity style={styles.secondaryBtn} onPress={handleShare}>
               <Ionicons name="share-social" size={18} color={Colors.navy} />
             </TouchableOpacity>
@@ -504,7 +600,7 @@ export default function ProfileScreen() {
           {isSeeker ? (
             <>
               {activeTab === 0 && renderOverview()}
-              {activeTab === 1 && renderSkills()}
+              {activeTab === 1 && renderEarnings()}
               {activeTab === 2 && renderReviews()}
             </>
           ) : (
@@ -664,13 +760,68 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.body, fontSize: 12, color: Colors.gray4, marginBottom: 2,
   },
   infoValue: {
-    fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.ink,
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: Colors.ink,
+  },
+  // Premium Trust UI
+  trustSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.lg,
+    padding: Spacing.md,
+    borderRadius: Radius.lg,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    ...Shadow.sm,
+  },
+  badgesWrapper: {
+    flex: 1,
+  },
+  badgesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: Spacing.sm,
+  },
+  premiumBadge: {
+    backgroundColor: Colors.goldLight,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.gold,
+  },
+  premiumBadgeText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 9,
+    color: Colors.goldDark,
+  },
+  ratingOverviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  hugeRating: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 32,
+    color: Colors.ink,
+    lineHeight: 36,
+  },
+  reviewsCountTxt: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 10,
+    color: Colors.inkSubtle,
+  },
+  trustRingWrapper: {
+    marginLeft: Spacing.md,
   },
   infoInput: {
     borderWidth: 1, borderColor: Colors.saffron, borderRadius: Radius.sm,
-    paddingHorizontal: 10, paddingVertical: 6,
-    fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.ink,
-    backgroundColor: Colors.saffronLight, marginTop: 4,
+    paddingHorizontal: 12, paddingVertical: 8, fontSize: FontSize.md,
+    fontFamily: FontFamily.bodyMedium, color: Colors.ink,
   },
   logoutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
@@ -872,5 +1023,123 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.gray5,
     lineHeight: 14,
+  },
+  seekerEarningsBalanceCard: {
+    margin: 20,
+    backgroundColor: Colors.navy,
+    borderRadius: Radius.md,
+    padding: 20,
+  },
+  earningsLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.6)',
+    letterSpacing: 1,
+  },
+  earningsBalanceValue: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 32,
+    color: Colors.white,
+    marginTop: 4,
+  },
+  earningsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginVertical: 16,
+  },
+  earningsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  earningSubLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  earningSubVal: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 15,
+    color: Colors.white,
+    marginTop: 2,
+  },
+  verticalDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  earningsWithdrawBtn: {
+    backgroundColor: Colors.saffron,
+    borderRadius: Radius.sm,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 20,
+    ...Shadow.sm,
+  },
+  earningsWithdrawText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 13,
+    color: Colors.white,
+  },
+  earningsHistoryTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 16,
+    color: Colors.ink,
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  earningsHistoryList: {
+    paddingHorizontal: 20,
+  },
+  earningRowCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.sm,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+  },
+  earningIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.greenLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  earningCardTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.base,
+    color: Colors.ink,
+  },
+  earningCardDate: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.gray4,
+    marginTop: 2,
+  },
+  earningCardAmount: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.lg,
+    color: Colors.green,
+  },
+  earningCardStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  liveDotCircle: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: Colors.green,
+    marginRight: 4,
+  },
+  earningCardStatusText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 9,
+    color: Colors.green,
   },
 });

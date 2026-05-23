@@ -1,16 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
+  ScrollView,
   Modal,
   Pressable,
-  Alert,
-  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../src/theme';
@@ -18,112 +18,64 @@ import { TopBar } from '../../src/components/organisms/TopBar';
 import { BottomNav } from '../../src/components/organisms/BottomNav';
 import { QuantityEditor } from '../../src/components/molecules/QuantityEditor';
 import { Badge } from '../../src/components/atoms/Badge';
-import { MOCK_MY_POSTED_JOBS } from '../../src/services/mockData';
 import { formatRelativeTime, getCategoryIcon } from '../../src/utils/helpers';
-import type { Job } from '../../src/types';
+import type { Job, Application } from '../../src/types';
 import { useUIStore } from '../../src/store/uiStore';
+import { useApplicationStore } from '../../src/store/applicationStore';
+import { useJobStore } from '../../src/store/jobStore';
+import { useAuthStore } from '../../src/store/authStore';
+import { AnimatedProgressTracker } from '../../src/components/molecules/AnimatedProgressTracker';
+import { CategoryTab } from '../../src/components/atoms/CategoryTab';
 
-const STATUS_FILTERS = ['All', 'Live', 'Paused', 'Filled', 'Deleted'];
-
-const MOCK_SEEKER_APPLICATIONS = [
-  {
-    id: 'app-101',
-    title: 'Event Staff Crew',
-    company: 'QuickMart Ameerpet',
-    pay: '₹500/day',
-    status: 'interview', // 'applied' | 'under_review' | 'interview' | 'selected' | 'withdrawn'
-    appliedDate: '2 days ago',
-    interviewTime: 'Tomorrow, 10:00 AM',
-    location: 'Ameerpet Store premises',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 20' },
-      { label: 'Review', status: 'completed', date: 'May 21' },
-      { label: 'Interview', status: 'current', date: 'May 22' },
-      { label: 'Offer', status: 'pending', date: null },
-    ]
-  },
-  {
-    id: 'app-102',
-    title: 'Delivery Partner',
-    company: 'Zepto Ameerpet',
-    pay: '₹25/order + fuel',
-    status: 'under_review',
-    appliedDate: '3 days ago',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 19' },
-      { label: 'Review', status: 'current', date: 'May 20' },
-      { label: 'Interview', status: 'pending', date: null },
-      { label: 'Offer', status: 'pending', date: null },
-    ]
-  },
-  {
-    id: 'app-103',
-    title: 'Warehouse Loader',
-    company: 'BigBasket Warehouse',
-    pay: '₹12,000/month',
-    status: 'selected',
-    appliedDate: '1 week ago',
-    steps: [
-      { label: 'Applied', status: 'completed', date: 'May 15' },
-      { label: 'Review', status: 'completed', date: 'May 16' },
-      { label: 'Interview', status: 'completed', date: 'May 18' },
-      { label: 'Offer', status: 'completed', date: 'May 20' },
-    ]
-  }
-];
-
-const MOCK_SEEKER_EARNINGS = [
-  { id: 'earn-001', jobTitle: 'Store Delivery Gig', date: 'May 18, 2026', amount: '₹450', status: 'Paid' },
-  { id: 'earn-002', jobTitle: 'Festival Event Host', date: 'May 12, 2026', amount: '₹1,500', status: 'Paid' },
-  { id: 'earn-003', jobTitle: 'Boutique Delivery Assistant', date: 'May 08, 2026', amount: '₹600', status: 'Paid' },
-];
+const STATUS_FILTERS = ['All', 'Live', 'Paused'];
+const SEEKER_STATUS_TABS = ['All', 'Pending', 'Accepted', 'Rejected', 'Completed'];
 
 export default function ManageJobsScreen() {
   const { currentRole, showToast } = useUIStore();
+  const { user } = useAuthStore();
   const isSeeker = currentRole === 'seeker';
 
   // Seeker State
-  const [seekerTab, setSeekerTab] = useState<'applications' | 'earnings'>('applications');
-  const [seekerApps, setSeekerApps] = useState(MOCK_SEEKER_APPLICATIONS);
+  const [seekerStatusFilter, setSeekerStatusFilter] = useState('All');
+  const { myApplications, fetchMyApplications, cancelApplication, isLoading: isAppLoading } = useApplicationStore();
   const [withdrawTarget, setWithdrawTarget] = useState<string | null>(null);
 
   // Provider State
+  const { myPostedJobs, fetchMyJobs, updateStatus, deleteJob } = useJobStore();
   const [selectedFilter, setSelectedFilter] = useState('All');
-  const [jobs, setJobs] = useState(MOCK_MY_POSTED_JOBS);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const filtered = jobs.filter((j) => {
+  useEffect(() => {
+    if (isSeeker && user?.id) {
+      fetchMyApplications(user.id);
+    } else if (!isSeeker && user?.id) {
+      fetchMyJobs(user.id);
+    }
+  }, [isSeeker, user]);
+
+  const filteredSeekerApps = myApplications.filter(app => {
+    if (seekerStatusFilter === 'All') return true;
+    return app.status === seekerStatusFilter.toLowerCase();
+  });
+
+  const filtered = myPostedJobs.filter((j) => {
     if (selectedFilter === 'All') return !j.is_deleted;
     if (selectedFilter === 'Deleted') return j.is_deleted;
     return j.status === selectedFilter.toLowerCase() && !j.is_deleted;
   });
 
-  const updateQuantity = (id: string, q: number) => {
-    setJobs((prev) => prev.map((j) => j.id === id ? { ...j, quantity_total: q } : j));
-  };
-
-  const togglePause = (id: string) => {
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === id ? { ...j, status: j.status === 'live' ? 'paused' : 'live' } : j
-      )
-    );
-  };
-
   const confirmDelete = () => {
     if (!deleteTarget) return;
-    setJobs((prev) =>
-      prev.map((j) => j.id === deleteTarget ? { ...j, is_deleted: true, status: 'deleted' } : j)
-    );
+    deleteJob(deleteTarget);
     setDeleteTarget(null);
     showToast('Job listing deleted successfully', 'success');
   };
 
-  const confirmWithdraw = () => {
+  const confirmWithdraw = async () => {
     if (!withdrawTarget) return;
-    setSeekerApps((prev) => prev.filter((a) => a.id !== withdrawTarget));
+    await cancelApplication(withdrawTarget);
     setWithdrawTarget(null);
-    showToast('Application withdrawn successfully', 'info');
+    showToast('Application cancelled successfully', 'info');
   };
 
   // Provider Card Render
@@ -140,14 +92,18 @@ export default function ManageJobsScreen() {
     }[job.status] as any ?? 'live';
 
     return (
-      <View style={[styles.jobCard, Shadow.sm]}>
+      <Animated.View entering={FadeInDown.springify()} style={[styles.jobCard, Shadow.md]}>
         {/* Header */}
         <View style={styles.cardHead}>
           <View style={styles.cardHeadLeft}>
-            <Text style={styles.cardIcon}>{getCategoryIcon(job.category)}</Text>
+            <View style={styles.cardIconWrap}>
+              <Text style={styles.cardIcon}>{getCategoryIcon(job.category)}</Text>
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.cardTitle} numberOfLines={1}>{job.title}</Text>
-              <Text style={styles.cardSub}>{job.location_name} • {formatRelativeTime(job.created_at)}</Text>
+              <Text style={styles.cardSub}>
+                <Ionicons name="location-outline" size={12} color={Colors.gray4} /> {job.location_name} • {formatRelativeTime(job.created_at)}
+              </Text>
             </View>
           </View>
           <Badge
@@ -156,239 +112,233 @@ export default function ManageJobsScreen() {
           />
         </View>
 
-        {/* Progress */}
-        <View style={styles.progressLabels}>
-          <Text style={styles.progressLabel}>Workers hired:</Text>
-          <Text style={styles.progressCount}>{filled} of {total}</Text>
-        </View>
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${pct}%` }]} />
+        {/* Progress Section */}
+        <View style={styles.progressContainer}>
+          <View style={styles.progressLabels}>
+            <Text style={styles.progressLabel}>Workers hired</Text>
+            <Text style={styles.progressCount}>{filled} / {total}</Text>
+          </View>
+          <View style={styles.progressBar}>
+            <View style={[styles.progressFill, { width: `${pct}%` }]} />
+          </View>
         </View>
 
-        {/* Quantity editor */}
-        {job.status !== 'deleted' && (
-          <View style={styles.qtySection}>
-            <QuantityEditor
-              value={total}
-              onChange={(q) => updateQuantity(job.id, q)}
-              label="Total workers needed:"
-            />
-            <Text style={styles.qtyHint}>
-              ⚡ Auto-reduces when you accept workers
-            </Text>
+        {/* Details Row */}
+        <View style={styles.detailsRow}>
+          <View style={styles.detailItem}>
+            <Ionicons name="cash-outline" size={16} color={Colors.saffron} />
+            <Text style={styles.payText}>₹{job.pay_amount}<Text style={styles.payPeriod}>/{job.pay_type}</Text></Text>
           </View>
-        )}
+          {job.is_urgent && (
+            <View style={styles.urgentBadge}>
+              <Ionicons name="flash" size={12} color={Colors.white} />
+              <Text style={styles.urgentText}>URGENT</Text>
+            </View>
+          )}
+        </View>
 
         {/* Actions */}
         {job.status !== 'deleted' && (
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.actionBtn, styles.primaryActionBtn]}
-              onPress={() => router.push('/(tabs)/inbox' as any)}
+              onPress={() => router.push(`/job/${job.id}/applications` as any)}
             >
-              <Text style={styles.primaryActionText}>👥 View Applications</Text>
+              <Ionicons name="people" size={18} color={Colors.white} style={{ marginRight: 6 }} />
+              <Text style={styles.primaryActionText}>View Applications</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.actionBtn}>
-              <Text style={styles.actionText}>✏️ Edit</Text>
-            </TouchableOpacity>
+            <View style={styles.secondaryActions}>
+              <TouchableOpacity 
+                style={styles.iconBtn} 
+                onPress={() => router.push(`/job/edit/${job.id}` as any)}
+              >
+                <Ionicons name="pencil" size={18} color={Colors.ink2} />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.actionBtn, job.status === 'live' ? styles.warnBtn : styles.successBtn]}
-              onPress={() => togglePause(job.id)}
-            >
-              <Text style={job.status === 'live' ? styles.warnText : styles.successText}>
-                {job.status === 'live' ? '⏸ Pause' : '▶️ Resume'}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.iconBtn, job.status === 'live' ? styles.warnBtn : styles.successBtn]}
+                onPress={() => updateStatus(job.id, job.status === 'live' ? 'paused' : 'live')}
+              >
+                <Ionicons name={job.status === 'live' ? 'pause' : 'play'} size={18} color={job.status === 'live' ? '#7B5200' : Colors.greenDark} />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.dangerBtn]}
-              onPress={() => setDeleteTarget(job.id)}
-            >
-              <Text style={styles.dangerText}>🗑 Delete</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.iconBtn, styles.dangerBtn]}
+                onPress={() => setDeleteTarget(job.id)}
+              >
+                <Ionicons name="trash" size={18} color={Colors.red} />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-
-        {/* Pay info */}
-        <View style={styles.payRow}>
-          <Text style={styles.payText}>₹{job.pay_amount}/{job.pay_type}</Text>
-          {job.is_urgent && <Text style={styles.urgentTag}>⚡ Urgent</Text>}
-        </View>
-      </View>
+      </Animated.View>
     );
   };
 
   // Seeker Application Card Render
-  const renderSeekerApplication = ({ item: app }: { item: typeof MOCK_SEEKER_APPLICATIONS[0] }) => {
+  const renderSeekerApplication = ({ item: app, index }: { item: Application, index: number }) => {
+    if (!app.job) return null;
+
+    let statusColor: string = Colors.gray4;
+    let statusBgColor: string = Colors.gray1;
+    let statusLabel = app.status.toUpperCase();
+
+    if (app.status === 'pending') {
+      statusColor = Colors.goldDark;
+      statusBgColor = Colors.goldLight;
+    } else if (app.status === 'accepted') {
+      statusColor = Colors.greenDark;
+      statusBgColor = Colors.greenLight;
+    } else if (app.status === 'rejected') {
+      statusColor = Colors.redDark;
+      statusBgColor = Colors.redLight;
+    } else if (app.status === 'completed') {
+      statusColor = Colors.blueDark;
+      statusBgColor = Colors.blueLight;
+    }
+
+    const isAccepted = app.status === 'accepted';
+    const isCompleted = app.status === 'completed';
+
     return (
-      <View style={[styles.jobCard, Shadow.sm]}>
-        {/* Top Title Row */}
-        <View style={styles.cardHead}>
-          <View style={styles.cardHeadLeft}>
-            <View style={styles.seekerAppIconCircle}>
-              <Ionicons name="briefcase" size={20} color={Colors.saffron} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardTitle} numberOfLines={1}>{app.title}</Text>
-              <Text style={styles.cardSub}>{app.company} • Applied {app.appliedDate}</Text>
-            </View>
-          </View>
-          <View style={[
-            styles.seekerBadge,
-            app.status === 'selected' ? styles.seekerBadgeGreen : app.status === 'interview' ? styles.seekerBadgeGold : styles.seekerBadgeBlue
-          ]}>
-            <Text style={[
-              styles.seekerBadgeText,
-              app.status === 'selected' ? styles.seekerBadgeTextGreen : app.status === 'interview' ? styles.seekerBadgeTextGold : styles.seekerBadgeTextBlue
-            ]}>
-              {app.status.toUpperCase().replace('_', ' ')}
-            </Text>
-          </View>
-        </View>
+      <Animated.View entering={FadeInDown.delay(index * 100).springify()} style={[styles.jobCard, Shadow.md, { borderColor: Colors.gray2, borderWidth: 1, padding: 0 }]}>
+        {/* Top Section */}
+        <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.gray1 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <View style={{ flexDirection: 'row', flex: 1 }}>
+              <View style={[styles.seekerAppIconCircle, { width: 48, height: 48, borderRadius: 24 }]}>
+                <Text style={{ fontSize: 24 }}>{getCategoryIcon(app.job.category)}</Text>
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={[styles.cardTitle, { fontSize: 18 }]} numberOfLines={1}>{app.job.title}</Text>
+                <Text style={styles.cardSub}>{app.job.poster_name || 'Provider'} • {formatRelativeTime(app.job.created_at)}</Text>
 
-        {/* Dynamic pay details */}
-        <View style={styles.seekerAppPayRow}>
-          <Text style={styles.seekerAppPayText}>{app.pay}</Text>
-        </View>
-
-        {/* Timeline representation */}
-        <View style={styles.timelineRow}>
-          {app.steps.map((step, idx) => {
-            const isCompleted = step.status === 'completed';
-            const isCurrent = step.status === 'current';
-            return (
-              <React.Fragment key={step.label}>
-                <View style={styles.timelineNodeContainer}>
-                  <View style={[
-                    styles.timelineDot,
-                    isCompleted && styles.timelineDotCompleted,
-                    isCurrent && styles.timelineDotCurrent,
-                  ]}>
-                    {isCompleted && <Ionicons name="checkmark" size={10} color={Colors.white} />}
+                <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                  <View style={[styles.seekerBadge, { backgroundColor: Colors.gray1 }]}>
+                    <Text style={[styles.seekerBadgeText, { color: Colors.ink2 }]}>{app.job.category.toUpperCase()}</Text>
                   </View>
-                  <Text style={[
-                    styles.timelineNodeLabel,
-                    (isCompleted || isCurrent) && styles.timelineNodeLabelActive
-                  ]}>{step.label}</Text>
-                  {step.date && <Text style={styles.timelineNodeDate}>{step.date}</Text>}
                 </View>
-                {idx < app.steps.length - 1 && (
-                  <View style={[
-                    styles.timelineConnector,
-                    isCompleted && styles.timelineConnectorActive
-                  ]} />
-                )}
-              </React.Fragment>
-            );
-          })}
-        </View>
-
-        {/* Interview detail banner */}
-        {app.status === 'interview' && app.interviewTime && (
-          <View style={styles.interviewBanner}>
-            <View style={styles.interviewBannerHeader}>
-              <Ionicons name="calendar" size={16} color={Colors.goldDark} />
-              <Text style={styles.interviewBannerTitle}>Interview Scheduled</Text>
+              </View>
             </View>
-            <Text style={styles.interviewBannerText}>🗓️ Time: {app.interviewTime}</Text>
-            <Text style={styles.interviewBannerText}>📍 Location: {app.location}</Text>
+            <View style={[styles.seekerBadge, { backgroundColor: statusBgColor }]}>
+              <Text style={[styles.seekerBadgeText, { color: statusColor }]}>
+                {statusLabel}
+              </Text>
+            </View>
           </View>
-        )}
-
-        {/* Actions row */}
-        <View style={styles.actions}>
-          {app.status === 'interview' ? (
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.primaryActionBtn]}
-              onPress={() => router.push('/(tabs)/inbox' as any)}
-            >
-              <Text style={styles.primaryActionText}>💬 Chat with Recruiter</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={styles.actionBtn}
-              onPress={() => router.push('/(tabs)/inbox' as any)}
-            >
-              <Text style={styles.actionText}>💬 Message Poster</Text>
-            </TouchableOpacity>
-          )}
-
-          {app.status !== 'selected' && (
-            <TouchableOpacity
-              style={[styles.actionBtn, styles.dangerBtn]}
-              onPress={() => setWithdrawTarget(app.id)}
-            >
-              <Text style={styles.dangerText}>Withdraw</Text>
-            </TouchableOpacity>
-          )}
         </View>
-      </View>
+
+        {/* Middle Section */}
+        <View style={{ padding: 16, backgroundColor: Colors.background }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', width: '45%' }}>
+              <Ionicons name="wallet-outline" size={16} color={Colors.gray4} />
+              <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 13, color: Colors.ink, marginLeft: 6 }}>
+                ₹{app.job.pay_amount}/{app.job.pay_type}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', width: '45%' }}>
+              <Ionicons name="location-outline" size={16} color={Colors.gray4} />
+              <Text style={{ fontFamily: FontFamily.body, fontSize: 13, color: Colors.ink2, marginLeft: 6 }} numberOfLines={1}>
+                {app.job.location_name}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', width: '45%' }}>
+              <Ionicons name="time-outline" size={16} color={Colors.gray4} />
+              <Text style={{ fontFamily: FontFamily.body, fontSize: 13, color: Colors.ink2, marginLeft: 6 }}>
+                Full Day
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', width: '45%' }}>
+              <Ionicons name="calendar-outline" size={16} color={Colors.gray4} />
+              <Text style={{ fontFamily: FontFamily.body, fontSize: 13, color: Colors.ink2, marginLeft: 6 }}>
+                1 Week
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Tracker */}
+        <View style={{ paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, backgroundColor: Colors.background }}>
+          <AnimatedProgressTracker status={app.status as any} />
+        </View>
+
+        {/* Bottom Section (Actions) */}
+        <View style={[styles.actions, { borderTopWidth: 1, borderTopColor: Colors.gray2, padding: 12, backgroundColor: Colors.white, borderBottomLeftRadius: Radius.xl, borderBottomRightRadius: Radius.xl }]}>
+          <TouchableOpacity
+            style={[styles.actionBtn, { flex: 1, backgroundColor: Colors.gray1, borderWidth: 0 }]}
+            onPress={() => router.push(`/job/${app.job_id}` as any)}
+          >
+            <Text style={[styles.actionText, { color: Colors.ink }]}>View Details</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, { flex: 1, backgroundColor: isAccepted || isCompleted ? Colors.blueLight : Colors.gray1, borderWidth: 0 }]}
+            onPress={() => (isAccepted || isCompleted) && router.push(`/chat/${app.id}` as any)}
+            disabled={!isAccepted && !isCompleted}
+          >
+            <Ionicons name="chatbubble-outline" size={16} color={isAccepted || isCompleted ? Colors.blueDark : Colors.gray4} style={{ marginRight: 6 }} />
+            <Text style={[styles.actionText, { color: isAccepted || isCompleted ? Colors.blueDark : Colors.gray4 }]}>Message</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, { flex: 1, backgroundColor: isAccepted || isCompleted ? Colors.saffronLight : Colors.gray1, borderWidth: 0 }]}
+            onPress={() => { }} // call logic
+            disabled={!isAccepted && !isCompleted}
+          >
+            <Ionicons name="call-outline" size={16} color={isAccepted || isCompleted ? Colors.saffronDark : Colors.gray4} style={{ marginRight: 6 }} />
+            <Text style={[styles.actionText, { color: isAccepted || isCompleted ? Colors.saffronDark : Colors.gray4 }]}>Call</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     );
   };
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
-        <View style={styles.topBarWrap}>
-          <View style={{ flex: 1 }}>
-            <TopBar
-              title={isSeeker ? "📋 My Job Applications" : "⚙️ My Posted Jobs"}
-              showBack={false}
-              showPostJob={false}
-            />
-          </View>
-          {!isSeeker && (
-            <TouchableOpacity
-              style={styles.postNewBtn}
-              onPress={() => router.push('/job/post' as any)}
-            >
-              <Text style={styles.postNewBtnText}>➕ Post New</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </SafeAreaView>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: Colors.navy }} />
+      <View style={styles.headerWrapper}>
+        <TopBar
+          showBack={false}
+          showPostJob={!isSeeker}
+        />
+      </View>
 
       {isSeeker ? (
         // ============ SEEKER WORKFLOW ============
         <View style={{ flex: 1 }}>
-          {/* Seeker Sub Tabs Segment Picker */}
-          <View style={styles.seekerSegmentContainer}>
-            <TouchableOpacity
-              style={[styles.seekerSegmentTab, seekerTab === 'applications' && styles.seekerSegmentTabActive]}
-              onPress={() => setSeekerTab('applications')}
-            >
-              <Ionicons
-                name="document-text"
-                size={18}
-                color={seekerTab === 'applications' ? Colors.saffron : Colors.gray5}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.seekerSegmentTabText, seekerTab === 'applications' && styles.seekerSegmentTabTextActive]}>
-                Applications ({seekerApps.length})
-              </Text>
-            </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              {SEEKER_STATUS_TABS.map((f) => {
+                const count = myApplications.filter((j) => {
+                  if (f === 'All') return true;
+                  return j.status === f.toLowerCase();
+                }).length;
 
-            <TouchableOpacity
-              style={[styles.seekerSegmentTab, seekerTab === 'earnings' && styles.seekerSegmentTabActive]}
-              onPress={() => setSeekerTab('earnings')}
-            >
-              <Ionicons
-                name="wallet"
-                size={18}
-                color={seekerTab === 'earnings' ? Colors.saffron : Colors.gray5}
-                style={{ marginRight: 6 }}
-              />
-              <Text style={[styles.seekerSegmentTabText, seekerTab === 'earnings' && styles.seekerSegmentTabTextActive]}>
-                Earnings & Invoices
-              </Text>
-            </TouchableOpacity>
-          </View>
+                let iconName = 'list-outline';
+                if (f === 'Pending') iconName = 'time-outline';
+                if (f === 'Accepted') iconName = 'checkmark-circle-outline';
+                if (f === 'Rejected') iconName = 'close-circle-outline';
+                if (f === 'Completed') iconName = 'checkmark-done-circle-outline';
 
-          {seekerTab === 'applications' ? (
+                const isActive = seekerStatusFilter === f;
+
+                return (
+                  <CategoryTab
+                    key={f}
+                    label={f}
+                    count={count}
+                    iconName={iconName as any}
+                    isActive={isActive}
+                    onPress={() => setSeekerStatusFilter(f)}
+                  />
+                );
+              })}
+            </ScrollView>
+
             <FlatList
-              data={seekerApps}
+              data={filteredSeekerApps}
               keyExtractor={(item) => item.id}
               renderItem={renderSeekerApplication}
               ListEmptyComponent={
@@ -407,81 +357,41 @@ export default function ManageJobsScreen() {
               contentContainerStyle={{ paddingBottom: 100 }}
               showsVerticalScrollIndicator={false}
             />
-          ) : (
-            // Earnings View
-            <ScrollView contentContainerStyle={{ paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-              {/* Total Earnings Balance Card */}
-              <View style={[styles.seekerEarningsBalanceCard, Shadow.md]}>
-                <Text style={styles.earningsLabel}>TOTAL LIFE-TIME EARNINGS</Text>
-                <Text style={styles.earningsBalanceValue}>₹2,550</Text>
-                <View style={styles.earningsDivider} />
-                <View style={styles.earningsRow}>
-                  <View>
-                    <Text style={styles.earningSubLabel}>Current Month</Text>
-                    <Text style={styles.earningSubVal}>₹1,050</Text>
-                  </View>
-                  <View style={styles.verticalDivider} />
-                  <View>
-                    <Text style={styles.earningSubLabel}>Verified Profile</Text>
-                    <Text style={[styles.earningSubVal, { color: Colors.green }]}>⭐ 100% Legit</Text>
-                  </View>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.earningsWithdrawBtn}
-                  onPress={() => showToast('Withdrawal successful! Amount credited to your UPI ID.', 'success')}
-                >
-                  <Text style={styles.earningsWithdrawText}>Withdraw to UPI / Bank ⚡</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.earningsHistoryTitle}>Earning Transactions</Text>
-              <View style={styles.earningsHistoryList}>
-                {MOCK_SEEKER_EARNINGS.map((earn) => (
-                  <View key={earn.id} style={[styles.earningRowCard, Shadow.xs]}>
-                    <View style={styles.earningIconWrap}>
-                      <Ionicons name="cash-outline" size={20} color={Colors.green} />
-                    </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.earningCardTitle}>{earn.jobTitle}</Text>
-                      <Text style={styles.earningCardDate}>{earn.date}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.earningCardAmount}>{earn.amount}</Text>
-                      <View style={styles.earningCardStatus}>
-                        <View style={[styles.liveDotCircle, { backgroundColor: Colors.green }]} />
-                        <Text style={styles.earningCardStatusText}>{earn.status}</Text>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </ScrollView>
-          )}
+          </View>
         </View>
       ) : (
         // ============ PROVIDER WORKFLOW ============
         <View style={{ flex: 1 }}>
           {/* Status filter chips */}
-          <View style={styles.filterRow}>
-            {STATUS_FILTERS.map((f) => {
-              const count = jobs.filter((j) => {
-                if (f === 'All') return !j.is_deleted;
-                if (f === 'Deleted') return j.is_deleted;
-                return j.status === f.toLowerCase() && !j.is_deleted;
-              }).length;
-              return (
-                <TouchableOpacity
-                  key={f}
-                  style={[styles.filterChip, selectedFilter === f && styles.filterChipActive]}
-                  onPress={() => setSelectedFilter(f)}
-                >
-                  <Text style={[styles.filterChipText, selectedFilter === f && styles.filterChipTextActive]}>
-                    {f} ({count})
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+          <View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              {STATUS_FILTERS.map((f) => {
+                const count = myPostedJobs.filter((j) => {
+                  if (f === 'All') return !j.is_deleted;
+                  if (f === 'Deleted') return j.is_deleted;
+                  return j.status === f.toLowerCase() && !j.is_deleted;
+                }).length;
+
+                let iconName = 'briefcase-outline';
+                if (f === 'Live') iconName = 'radio-button-on';
+                if (f === 'Paused') iconName = 'pause-circle-outline';
+                if (f === 'Filled') iconName = 'checkmark-circle-outline';
+                if (f === 'Deleted') iconName = 'trash-outline';
+
+                const isActive = selectedFilter === f;
+
+                return (
+                  <CategoryTab
+                    key={f}
+                    label={f}
+                    count={count}
+                    iconName={iconName as any}
+                    isActive={isActive}
+                    onPress={() => setSelectedFilter(f)}
+                  />
+                );
+              })}
+            </ScrollView>
           </View>
 
           <FlatList
@@ -562,45 +472,36 @@ export default function ManageJobsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
-  topBarWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  headerWrapper: {
     backgroundColor: Colors.navy,
-    paddingRight: 12,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    paddingBottom: 20,
+    marginBottom: 12,
+    zIndex: 10,
+    ...Shadow.md,
   },
-  postNewBtn: {
-    backgroundColor: Colors.saffron,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-  },
-  postNewBtnText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm, color: Colors.white },
   filterRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 6,
-    backgroundColor: Colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
-    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 10,
   },
   filterChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderRadius: 20,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: Colors.gray2,
     backgroundColor: Colors.white,
   },
-  filterChipActive: { backgroundColor: Colors.saffronLight, borderColor: Colors.saffron },
-  filterChipText: { fontFamily: FontFamily.bodyMedium, fontSize: FontSize.base, color: Colors.ink2 },
-  filterChipTextActive: { color: Colors.saffronDark, fontFamily: FontFamily.bodySemiBold },
+  filterChipActive: { backgroundColor: Colors.saffron, borderColor: Colors.saffron },
+  filterChipText: { fontFamily: FontFamily.bodyMedium, fontSize: 14, color: Colors.ink2 },
+  filterChipTextActive: { color: Colors.white, fontFamily: FontFamily.bodySemiBold },
   jobCard: {
-    margin: 12,
-    marginBottom: 4,
+    marginHorizontal: 16,
+    marginTop: 16,
     backgroundColor: Colors.white,
-    borderRadius: Radius.md,
+    borderRadius: Radius.lg,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.gray2,
@@ -609,71 +510,105 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 10,
-    gap: 8,
+    marginBottom: 16,
+    gap: 12,
   },
   cardHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-  cardIcon: { fontSize: 20 },
-  cardTitle: { fontFamily: FontFamily.headingBold, fontSize: 16, color: Colors.ink },
-  cardSub: { fontFamily: FontFamily.bodyMedium, fontSize: 12, color: Colors.gray4, marginTop: 2 },
+  cardIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.gray1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardIcon: { fontSize: 24 },
+  cardTitle: { fontFamily: FontFamily.headingBold, fontSize: 17, color: Colors.ink },
+  cardSub: { fontFamily: FontFamily.body, fontSize: 13, color: Colors.gray4, marginTop: 4 },
+  progressContainer: {
+    backgroundColor: Colors.gray1,
+    padding: 12,
+    borderRadius: Radius.md,
+    marginBottom: 16,
+  },
   progressLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  progressLabel: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.gray4 },
-  progressCount: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm, color: Colors.saffron },
-  progressBar: {
-    height: 6,
-    backgroundColor: Colors.gray2,
-    borderRadius: 3,
-    overflow: 'hidden',
     marginBottom: 8,
+  },
+  progressLabel: { fontFamily: FontFamily.bodyMedium, fontSize: 13, color: Colors.gray5 },
+  progressCount: { fontFamily: FontFamily.headingBold, fontSize: 13, color: Colors.saffron },
+  progressBar: {
+    height: 8,
+    backgroundColor: Colors.gray2,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
     backgroundColor: Colors.saffron,
-    borderRadius: 3,
+    borderRadius: 4,
   },
-  qtySection: { marginBottom: 10 },
-  qtyHint: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.gray4,
-    marginTop: 4,
-    marginLeft: 2,
+  detailsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray2,
   },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4, marginTop: 10 },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  payText: { fontFamily: FontFamily.headingBold, fontSize: 18, color: Colors.ink },
+  payPeriod: { fontFamily: FontFamily.body, fontSize: 13, color: Colors.gray4 },
+  urgentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.red,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    gap: 4,
+  },
+  urgentText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 10,
+    color: Colors.white,
+    letterSpacing: 0.5,
+  },
+  actions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  secondaryActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
   actionBtn: {
     flex: 1,
-    height: 38,
-    borderRadius: Radius.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    backgroundColor: Colors.white,
+    flexDirection: 'row',
+    height: 44,
+    borderRadius: Radius.md,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  primaryActionBtn: { backgroundColor: Colors.saffronLight, borderColor: Colors.saffron },
-  primaryActionText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: Colors.saffronDark },
-  actionText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: Colors.ink2 },
-  warnBtn: { backgroundColor: Colors.goldLight, borderColor: Colors.gold },
-  warnText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: '#7B5200' },
-  successBtn: { backgroundColor: Colors.greenLight, borderColor: Colors.green },
-  successText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: Colors.greenDark },
-  dangerBtn: { backgroundColor: Colors.redLight, borderColor: 'transparent' },
-  dangerText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: Colors.red },
-  payRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.gray2, marginTop: 8 },
-  payText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.saffron },
-  urgentTag: {
-    backgroundColor: Colors.redLight,
-    borderRadius: 20,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
-    color: Colors.red,
+  iconBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    backgroundColor: Colors.white,
   },
+  actionText: { fontFamily: FontFamily.bodySemiBold, fontSize: 12, color: Colors.ink2 },
+  primaryActionBtn: { backgroundColor: Colors.saffron },
+  primaryActionText: { fontFamily: FontFamily.headingBold, fontSize: 14, color: Colors.white },
+  warnBtn: { backgroundColor: Colors.goldLight, borderColor: Colors.gold },
+  successBtn: { backgroundColor: Colors.greenLight, borderColor: Colors.green },
+  dangerBtn: { backgroundColor: Colors.redLight, borderColor: Colors.redLight },
   emptyState: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 24 },
   emptyIcon: { fontSize: 52, marginBottom: 14 },
   emptyTitle: { fontFamily: FontFamily.headingBold, fontSize: FontSize.xl, color: Colors.ink, marginBottom: 6 },
@@ -849,123 +784,5 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: '#7B5200',
     marginTop: 2,
-  },
-  seekerEarningsBalanceCard: {
-    margin: 20,
-    backgroundColor: Colors.navy,
-    borderRadius: Radius.md,
-    padding: 20,
-  },
-  earningsLabel: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.6)',
-    letterSpacing: 1,
-  },
-  earningsBalanceValue: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 32,
-    color: Colors.white,
-    marginTop: 4,
-  },
-  earningsDivider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginVertical: 16,
-  },
-  earningsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  earningSubLabel: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.xs,
-    color: 'rgba(255, 255, 255, 0.5)',
-  },
-  earningSubVal: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 15,
-    color: Colors.white,
-    marginTop: 2,
-  },
-  verticalDivider: {
-    width: 1,
-    height: 32,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  earningsWithdrawBtn: {
-    backgroundColor: Colors.saffron,
-    borderRadius: Radius.sm,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 20,
-    ...Shadow.sm,
-  },
-  earningsWithdrawText: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 13,
-    color: Colors.white,
-  },
-  earningsHistoryTitle: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: 16,
-    color: Colors.ink,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  earningsHistoryList: {
-    paddingHorizontal: 20,
-  },
-  earningRowCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.white,
-    borderRadius: Radius.sm,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: Colors.gray2,
-  },
-  earningIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: Colors.greenLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  earningCardTitle: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.base,
-    color: Colors.ink,
-  },
-  earningCardDate: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: 11,
-    color: Colors.gray4,
-    marginTop: 2,
-  },
-  earningCardAmount: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize.lg,
-    color: Colors.green,
-  },
-  earningCardStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  liveDotCircle: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: Colors.green,
-    marginRight: 4,
-  },
-  earningCardStatusText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 9,
-    color: Colors.green,
   },
 });

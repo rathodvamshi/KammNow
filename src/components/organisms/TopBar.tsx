@@ -17,6 +17,7 @@ interface TopBarProps {
   showBack?: boolean;
   onBack?: () => void;
   showLogo?: boolean;
+  noBorder?: boolean;
 }
 
 const LANGUAGES = [
@@ -31,6 +32,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   showBack = false,
   onBack,
   showLogo = true,
+  noBorder = false,
 }) => {
   const { language, setLanguage } = useUIStore();
   const [showLangMenu, setShowLangMenu] = useState(false);
@@ -39,7 +41,7 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   return (
     <>
-      <View style={styles.topbar}>
+      <View style={[styles.topbar, noBorder && styles.topbarNoBorder]}>
         {/* Left: back or logo */}
         {showBack ? (
           <TouchableOpacity
@@ -122,11 +124,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: Colors.navy,
-    borderBottomWidth: 2,
-    borderBottomColor: Colors.saffron,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+    ...Shadow.sm,
+  },
+  topbarNoBorder: {
+    borderBottomWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   backBtn: {
     flexDirection: 'row',
@@ -166,12 +174,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   langBtn: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 20,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 24,
   },
   langBtnText: {
     fontFamily: FontFamily.bodyMedium,

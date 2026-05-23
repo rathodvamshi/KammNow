@@ -306,8 +306,7 @@ function DropdownPanel<T extends string>({
             opacity: opacityAnim,
             transform: [{ translateY: slideAnim }],
           },
-        ]}
-        pointerEvents="box-none"
+        , { pointerEvents: "box-none" }]}
       >
         {/* Panel header */}
         <View style={styles.panelHeader}>

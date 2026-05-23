@@ -16,7 +16,8 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Spacing, Radius, Shadow } from '../src/theme';
 import { useSearchStore } from '../src/store/searchStore';
-import { MOCK_JOBS } from '../src/services/mockData';
+import { matchingEngine } from '../src/services/matchingEngine';
+import { useAuthStore } from '../src/store/authStore';
 import { JobCard } from '../src/components/molecules/JobCard';
 import type { Job } from '../src/types';
 
@@ -53,7 +54,7 @@ const AnimatedPlaceholder = ({ active }: { active: boolean }) => {
   if (active) return null;
 
   return (
-    <View style={[StyleSheet.absoluteFill, styles.placeholderWrap]} pointerEvents="none">
+    <View style={[[StyleSheet.absoluteFill, styles.placeholderWrap], { pointerEvents: "none" }]}>
       <Text style={styles.placeholderStatic}>Search </Text>
       <Animated.View style={{ transform: [{ translateY }], opacity, flex: 1 }}>
         <Text style={styles.placeholderAnimated}>
@@ -70,7 +71,14 @@ export default function SearchScreen() {
   const [results, setResults] = useState<Job[]>([]);
   
   const { recentSearches, addSearch, removeSearch, clearSearches } = useSearchStore();
+  const { user } = useAuthStore();
   const inputRef = useRef<TextInput>(null);
+  const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
+
+  useEffect(() => {
+    // Load default recommendations
+    matchingEngine.getRecommendations({ user: user || ({} as any) }).then(res => setRecommendedJobs(res));
+  }, []);
 
   // Auto-focus input on mount
   useEffect(() => {
@@ -95,12 +103,14 @@ export default function SearchScreen() {
       return;
     }
     
-    const filtered = MOCK_JOBS.filter((job) => 
-      job.title.toLowerCase().includes(q) ||
-      job.location_name.toLowerCase().includes(q) ||
-      job.category.toLowerCase().includes(q)
-    );
-    setResults(filtered);
+    const fetchResults = async () => {
+      const filtered = await matchingEngine.getRecommendations({
+        user: user || ({} as any),
+        searchTerm: q
+      });
+      setResults(filtered);
+    };
+    fetchResults();
   }, [debouncedQuery]);
 
   const handleSubmit = (searchQuery: string) => {
@@ -126,7 +136,7 @@ export default function SearchScreen() {
     sections.push({
       type: 'recommended',
       title: 'Recommended Jobs',
-      data: MOCK_JOBS.slice(0, 5),
+      data: recommendedJobs.slice(0, 5),
     });
 
     const renderSectionHeader = ({ section }: any) => {
@@ -385,11 +395,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.gray2,
     gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
+    boxShadow: "0px 1px 4px rgba(0,0,0,0.05)",
   },
   recentChipText: {
     fontFamily: FontFamily.bodyMedium,

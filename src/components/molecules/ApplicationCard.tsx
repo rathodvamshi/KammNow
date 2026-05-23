@@ -44,6 +44,8 @@ export const ApplicationCard: React.FC<ApplicationCardProps> = ({
     rejected: 'rejected' as const,
     withdrawn: 'filled' as const,
     completed: 'review' as const,
+    cancelled: 'rejected' as const,
+    cancellation_requested: 'pending' as const,
   }[application.status] ?? 'pending';
 
   const statusLabel = {
@@ -52,6 +54,8 @@ export const ApplicationCard: React.FC<ApplicationCardProps> = ({
     rejected: 'Rejected',
     withdrawn: 'Withdrawn',
     completed: 'Completed',
+    cancelled: 'Cancelled',
+    cancellation_requested: 'Cancellation Requested',
   }[application.status] ?? 'Pending';
 
   return (

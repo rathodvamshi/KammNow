@@ -163,7 +163,7 @@ export default function AddressFormScreen() {
               <View style={styles.mapContainer}>
                 <StaticMap latitude={lat} longitude={lng} />
                 {/* Center teardrop pin overlay */}
-                <View style={styles.mapMarkerOverlay} pointerEvents="none">
+                <View style={[styles.mapMarkerOverlay, { pointerEvents: "none" }]}>
                   <Ionicons name="location" size={32} color={ACCENT_COLOR} />
                   <View style={styles.markerDot} />
                 </View>

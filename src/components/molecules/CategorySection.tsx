@@ -406,21 +406,13 @@ const styles = StyleSheet.create({
     borderRadius: CIRCLE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 0,
+    boxShadow: "0px 1px 8px rgba(0,0,0,0.05)",
     ...Platform.select({
       web: { transition: 'box-shadow 0.18s ease' },
     }),
   },
   circleActive: {
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 0,
+    boxShadow: '0px 2px 12px rgba(255,107,0,0.15)',
   },
 
   // Badge

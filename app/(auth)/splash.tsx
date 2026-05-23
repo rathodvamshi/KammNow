@@ -1,223 +1,282 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Animated,
-  Easing,
-  SafeAreaView,
-  ScrollView,
-  Dimensions,
-} from 'react-native';
+import React, { useEffect } from 'react';
+import { View, Text, StyleSheet, Dimensions, Platform } from 'react-native';
 import { router } from 'expo-router';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withRepeat,
+  withSequence,
+  withDelay,
+  withSpring,
+  Easing,
+  interpolate,
+  runOnJS,
+  useAnimatedProps,
+} from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/theme';
-import { useUIStore } from '../../src/store/uiStore';
+import Svg, { Path, Rect } from 'react-native-svg';
+import { Colors, FontFamily } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-const LANGUAGES = [
-  { key: 'en' as const, label: 'English', native: 'English' },
-  { key: 'hi' as const, label: 'Hindi', native: 'हिन्दी' },
-  { key: 'te' as const, label: 'Telugu', native: 'తెలుగు' },
+const FEATURES = [
+  { icon: '⚡', label: 'Instant Hiring' },
+  { icon: '📍', label: 'Near You' },
+  { icon: '💰', label: 'Daily Pay' },
 ];
 
-const TAGLINES: Record<string, string> = {
-  en: 'Find work nearby. Fast. Easy.',
-  hi: 'काम तुरंत मिले',
-  te: 'పని వెంటనే దొరకండి',
-};
-
-const FEATURES: Record<string, string[]> = {
-  en: ['📍 Nearest jobs first', '⚡ Instant hiring', '✅ Verified workers', '🎙️ Voice apply'],
-  hi: ['📍 नजदीकी काम पहले', '⚡ तुरंत भर्ती', '✅ वेरिफाइड कामगार', '🎙️ आवाज से अप्लाई'],
-  te: ['📍 దగ్గర పని ముందు', '⚡ తక్షణ నియామకం', '✅ ధృవీకరించబడింది', '🎙️ వాయిస్ అప్లై'],
-};
-
-export default function SplashScreen() {
-  const { language, setLanguage } = useUIStore();
-  const { isAuthenticated } = useAuthStore();
-  const [showLangMenu, setShowLangMenu] = useState(false);
-
-  // Animations
-  const logoScale = useRef(new Animated.Value(0.3)).current;
-  const logoOpacity = useRef(new Animated.Value(0)).current;
-  const contentOpacity = useRef(new Animated.Value(0)).current;
-  const floatY = useRef(new Animated.Value(0)).current;
+function FloatingOrb({ size, color, delay, startX, startY }: { size: number; color: string; delay: number; startX: number; startY: number }) {
+  const translateY = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(0);
 
   useEffect(() => {
-    // If already authenticated, go to home
-    if (isAuthenticated) {
-      router.replace('/(tabs)');
-      return;
-    }
+    opacity.value = withDelay(delay, withTiming(0.6, { duration: 1000 }));
+    translateY.value = withDelay(delay, withRepeat(
+      withSequence(
+        withTiming(-20, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(20, { duration: 2500, easing: Easing.inOut(Easing.ease) })
+      ), -1, true
+    ));
+    translateX.value = withDelay(delay + 300, withRepeat(
+      withSequence(
+        withTiming(-12, { duration: 3000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(12, { duration: 3000, easing: Easing.inOut(Easing.ease) })
+      ), -1, true
+    ));
+  }, []);
 
-    // Logo entrance animation
-    Animated.parallel([
-      Animated.spring(logoScale, {
-        toValue: 1,
-        tension: 60,
-        friction: 6,
-        useNativeDriver: true,
-      }),
-      Animated.timing(logoOpacity, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      // Content fade in
-      Animated.timing(contentOpacity, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }).start();
-    });
+  const style = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateY: translateY.value }, { translateX: translateX.value }],
+    position: 'absolute',
+    left: startX,
+    top: startY,
+    width: size,
+    height: size,
+    borderRadius: size / 2,
+    backgroundColor: color,
+  }));
 
-    // Floating logo animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatY, {
-          toValue: -8,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatY, {
-          toValue: 0,
-          duration: 1800,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [isAuthenticated]);
+  return <Animated.View style={style} />;
+}
+
+function GlowRing({ delay, scale: scaleProp }: { delay: number; scale: number }) {
+  const ringOpacity = useSharedValue(0.5);
+  const ringScale = useSharedValue(scaleProp);
+
+  useEffect(() => {
+    ringOpacity.value = withDelay(delay, withRepeat(
+      withSequence(
+        withTiming(0, { duration: 1800, easing: Easing.out(Easing.ease) }),
+        withTiming(0.5, { duration: 0 }),
+      ), -1
+    ));
+    ringScale.value = withDelay(delay, withRepeat(
+      withSequence(
+        withTiming(scaleProp + 0.5, { duration: 1800, easing: Easing.out(Easing.ease) }),
+        withTiming(scaleProp, { duration: 0 }),
+      ), -1
+    ));
+  }, []);
+
+  const style = useAnimatedStyle(() => ({
+    opacity: ringOpacity.value,
+    transform: [{ scale: ringScale.value }],
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 107, 0, 0.5)',
+    alignSelf: 'center',
+  }));
+
+  return <Animated.View style={style} />;
+}
+
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
+
+function AnimatedLogo() {
+  const glow = useSharedValue(0.3);
+  const progress = useSharedValue(0);
+
+  useEffect(() => {
+    glow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.3, { duration: 2000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+
+    progress.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 2500, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 2500, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    borderColor: `rgba(255, 107, 0, ${glow.value})`,
+    shadowOpacity: glow.value * 0.8,
+  }));
+
+  const rectAnimatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: 160 * (1 - progress.value)
+  }));
+
+  const pathAnimatedProps = useAnimatedProps(() => ({
+    strokeDashoffset: 80 * (1 - progress.value)
+  }));
+
+  return (
+    <Animated.View style={[styles.logoContainer, animatedStyle]}>
+      <Svg width={64} height={64} viewBox="0 0 24 24" fill="none" stroke={Colors.saffron} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round">
+        <AnimatedRect 
+          x="2" y="7" width="20" height="14" rx="2" ry="2" 
+          strokeDasharray="160"
+          animatedProps={rectAnimatedProps as any} 
+        />
+        <AnimatedPath 
+          d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"
+          strokeDasharray="80"
+          animatedProps={pathAnimatedProps as any}
+        />
+      </Svg>
+    </Animated.View>
+  );
+}
+
+export default function SplashScreen() {
+  const { isAuthenticated } = useAuthStore();
+
+  const logoScale = useSharedValue(0);
+  const logoOpacity = useSharedValue(0);
+  const titleOpacity = useSharedValue(0);
+  const titleTranslateY = useSharedValue(30);
+  const taglineOpacity = useSharedValue(0);
+  const taglineTranslateY = useSharedValue(20);
+  const pillsOpacity = useSharedValue(0);
+  const pillsTranslateY = useSharedValue(30);
+
+  useEffect(() => {
+    // Logo pop in
+    logoScale.value = withSpring(1, { damping: 10, stiffness: 80 });
+    logoOpacity.value = withTiming(1, { duration: 600 });
+
+    // Title slides up
+    titleOpacity.value = withDelay(400, withTiming(1, { duration: 600 }));
+    titleTranslateY.value = withDelay(400, withSpring(0, { damping: 14, stiffness: 100 }));
+
+    // Tagline
+    taglineOpacity.value = withDelay(700, withTiming(1, { duration: 500 }));
+    taglineTranslateY.value = withDelay(700, withSpring(0, { damping: 14 }));
+
+    // Pills
+    pillsOpacity.value = withDelay(1000, withTiming(1, { duration: 500 }));
+    pillsTranslateY.value = withDelay(1000, withSpring(0, { damping: 12 }));
+
+    // Smart navigate after animation
+    const timer = setTimeout(() => {
+      if (isAuthenticated) {
+        // Returning logged-in user — go straight to main app
+        router.replace('/(tabs)');
+      } else {
+        // New / logged-out user — go to login
+        router.replace('/(auth)/phone');
+      }
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const logoStyle = useAnimatedStyle(() => ({
+    opacity: logoOpacity.value,
+    transform: [{ scale: logoScale.value }],
+  }));
+
+  const titleStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value,
+    transform: [{ translateY: titleTranslateY.value }],
+  }));
+
+  const taglineStyle = useAnimatedStyle(() => ({
+    opacity: taglineOpacity.value,
+    transform: [{ translateY: taglineTranslateY.value }],
+  }));
+
+  const pillsStyle = useAnimatedStyle(() => ({
+    opacity: pillsOpacity.value,
+    transform: [{ translateY: pillsTranslateY.value }],
+  }));
 
   return (
     <View style={styles.container}>
-      {/* Gradient background */}
+      {/* Floating ambient orbs */}
+      <FloatingOrb size={180} color="rgba(255,107,0,0.08)" delay={0} startX={-50} startY={height * 0.05} />
+      <FloatingOrb size={140} color="rgba(255,107,0,0.06)" delay={400} startX={width * 0.6} startY={height * 0.02} />
+      <FloatingOrb size={220} color="rgba(99,60,180,0.06)" delay={200} startX={-40} startY={height * 0.55} />
+      <FloatingOrb size={160} color="rgba(255,107,0,0.05)" delay={600} startX={width * 0.65} startY={height * 0.65} />
+
+      {/* Gradient accent bar at top */}
       <LinearGradient
-        colors={[Colors.navy, Colors.navy2, '#162038']}
-        style={StyleSheet.absoluteFillObject}
-        start={{ x: 0.2, y: 0 }}
-        end={{ x: 0.8, y: 1 }}
+        colors={['rgba(255,107,0,0.3)', 'transparent']}
+        style={styles.topGlow}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
       />
 
-      {/* Pattern overlay */}
-      <View style={styles.patternOverlay} pointerEvents="none" />
+      <View style={styles.center}>
+        {/* Logo Section */}
+        <View style={styles.logoWrapper}>
+          {/* Glow rings */}
+          <GlowRing delay={800} scale={1} />
+          <GlowRing delay={1400} scale={1.2} />
 
-      {/* Language selector top-right */}
-      <SafeAreaView style={styles.safeTop}>
-        <TouchableOpacity
-          style={styles.langTopBtn}
-          onPress={() => setShowLangMenu(!showLangMenu)}
-        >
-          <Text style={styles.langTopBtnText}>🌐 {language.toUpperCase()} ▾</Text>
-        </TouchableOpacity>
-        {showLangMenu && (
-          <View style={styles.langMenu}>
-            {LANGUAGES.map((l) => (
-              <TouchableOpacity
-                key={l.key}
-                style={[styles.langMenuItem, l.key === language && styles.langMenuItemActive]}
-                onPress={() => {
-                  setLanguage(l.key);
-                  setShowLangMenu(false);
-                }}
-              >
-                <Text style={[styles.langMenuText, l.key === language && styles.langMenuTextActive]}>
-                  {l.native}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-      </SafeAreaView>
+          <Animated.View style={logoStyle}>
+            <AnimatedLogo />
+          </Animated.View>
+        </View>
 
-      {/* Main content */}
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        bounces={false}
-      >
-        {/* Animated logo */}
-        <Animated.View
-          style={[
-            styles.logoWrap,
-            {
-              opacity: logoOpacity,
-              transform: [{ scale: logoScale }, { translateY: floatY }],
-            },
-          ]}
-        >
-          <View style={styles.logoGlow} />
-          <View style={styles.logoBox}>
-            <Text style={styles.logoEmoji}>💼</Text>
-          </View>
+        {/* Brand Name */}
+        <Animated.View style={titleStyle}>
+          <Text style={styles.appName}>KaamNow</Text>
         </Animated.View>
 
-        <Animated.View style={[styles.textBlock, { opacity: contentOpacity }]}>
-          {/* Brand */}
-          <Text style={styles.brandName}>
-            <Text style={{ color: Colors.saffron }}>Kaam</Text>Now
-          </Text>
-          <Text style={styles.tagline}>{TAGLINES[language]}</Text>
-
-          {/* Language chips */}
-          <View style={styles.langChips}>
-            {LANGUAGES.map((l) => (
-              <TouchableOpacity
-                key={l.key}
-                style={[styles.langChip, l.key === language && styles.langChipActive]}
-                onPress={() => setLanguage(l.key)}
-              >
-                <Text style={[styles.langChipText, l.key === language && styles.langChipTextActive]}>
-                  {l.native}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* City illustration */}
-          <View style={styles.illustration}>
-            <Text style={styles.illustrationEmoji}>🏙️</Text>
-            <View style={styles.illustrationGlow} />
-          </View>
-
-          {/* Feature bullets */}
-          <View style={styles.features}>
-            {(FEATURES[language] ?? FEATURES.en).map((f, i) => (
-              <Text key={i} style={styles.feature}>{f}</Text>
-            ))}
-          </View>
-
-          {/* CTAs */}
-          <TouchableOpacity
-            style={styles.primaryBtn}
-            onPress={() => router.push('/(auth)/phone')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.primaryBtnText}>
-              {language === 'en' ? '🚀 Login / लॉगिन' : language === 'hi' ? '🚀 लॉगिन करें' : '🚀 లాగిన్ చేయండి'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.secondaryBtn}
-            onPress={() => router.push('/(auth)/phone')}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryBtnText}>
-              {language === 'en' ? 'New? Sign Up Free →' : language === 'hi' ? 'नया? मुफ्त साइन अप →' : 'కొత్తవారా? ఉచితంగా →'}
-            </Text>
-          </TouchableOpacity>
-
-          <Text style={styles.terms}>
-            By continuing you agree to Terms & Privacy Policy
-          </Text>
+        {/* Tagline */}
+        <Animated.View style={taglineStyle}>
+          <Text style={styles.tagline}>Your next job is one tap away</Text>
         </Animated.View>
-      </ScrollView>
+
+        {/* Feature Pills */}
+        <Animated.View style={[styles.pillsRow, pillsStyle]}>
+          {FEATURES.map((f, i) => (
+            <View key={i} style={styles.pill}>
+              <Text style={styles.pillIcon}>{f.icon}</Text>
+              <Text style={styles.pillLabel}>{f.label}</Text>
+            </View>
+          ))}
+        </Animated.View>
+      </View>
+
+      {/* Bottom divider glow */}
+      <LinearGradient
+        colors={['transparent', 'rgba(255,107,0,0.15)', 'transparent']}
+        style={styles.bottomGlow}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+      />
+
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Connecting India's workforce</Text>
+      </View>
     </View>
   );
 }
@@ -225,224 +284,96 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.navy,
-  },
-  patternOverlay: {
-    position: 'absolute',
-    inset: 0,
-    // subtle diagonal grid
-    opacity: 0.04,
-  },
-  safeTop: {
-    position: 'absolute',
-    top: 50,
-    right: 14,
-    zIndex: 20,
-  },
-  langTopBtn: {
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-  },
-  langTopBtnText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.base,
-    color: Colors.white,
-  },
-  langMenu: {
-    marginTop: 6,
-    backgroundColor: Colors.white,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: Colors.gray2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  langMenuItem: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
-  },
-  langMenuItemActive: {
-    backgroundColor: Colors.saffronLight,
-  },
-  langMenuText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.lg,
-    color: Colors.ink,
-  },
-  langMenuTextActive: {
-    color: Colors.saffron,
-    fontFamily: FontFamily.bodySemiBold,
-  },
-  content: {
-    flexGrow: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#0A0A0A',
+  },
+  topGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 200,
+  },
+  center: {
+    alignItems: 'center',
     paddingHorizontal: 24,
-    paddingTop: 100,
-    paddingBottom: 40,
   },
-  logoWrap: {
-    position: 'relative',
-    marginBottom: 16,
-    alignItems: 'center',
-  },
-  logoGlow: {
-    position: 'absolute',
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: Colors.saffron,
-    opacity: 0.18,
-  },
-  logoBox: {
-    width: 90,
-    height: 90,
-    backgroundColor: Colors.saffron,
-    borderRadius: 22,
+  logoWrapper: {
+    width: 140,
+    height: 140,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 28,
+  },
+  logoContainer: {
+    width: 120,
+    height: 120,
+    backgroundColor: '#0A0A0A',
+    borderRadius: 36,
+    borderWidth: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
     shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 0 },
+    shadowRadius: 24,
     elevation: 12,
   },
-  logoEmoji: {
-    fontSize: 44,
-  },
-  textBlock: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  brandName: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['6xl'],
-    color: Colors.white,
-    letterSpacing: -1,
-    marginBottom: 6,
+  appName: {
+    fontFamily: Platform.select({ ios: 'Chalkboard SE', android: 'casual', default: FontFamily.headingBold }),
+    fontSize: 54,
+    color: '#FFFFFF',
+    marginBottom: 10,
     textAlign: 'center',
+    fontWeight: 'bold',
   },
   tagline: {
     fontFamily: FontFamily.body,
-    fontSize: FontSize.lg,
-    color: 'rgba(255,255,255,0.6)',
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.55)',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 40,
+    letterSpacing: 0.3,
   },
-  langChips: {
+  pillsRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginVertical: 12,
+    gap: 10,
   },
-  langChip: {
-    paddingHorizontal: 13,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 100,
   },
-  langChipActive: {
-    backgroundColor: Colors.saffron,
-    borderColor: Colors.saffron,
+  pillIcon: {
+    fontSize: 14,
   },
-  langChipText: {
+  pillLabel: {
     fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.base,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.75)',
   },
-  langChipTextActive: {
-    color: Colors.white,
-    fontFamily: FontFamily.bodySemiBold,
-  },
-  illustration: {
-    width: 200,
-    height: 120,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 16,
-    marginVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    overflow: 'hidden',
-  },
-  illustrationEmoji: {
-    fontSize: 60,
-  },
-  illustrationGlow: {
+  bottomGlow: {
     position: 'absolute',
-    bottom: -20,
-    width: 150,
-    height: 40,
-    backgroundColor: Colors.saffron,
-    opacity: 0.08,
-    borderRadius: 75,
+    bottom: 70,
+    left: 24,
+    right: 24,
+    height: 1,
   },
-  features: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    justifyContent: 'center',
-    marginBottom: 24,
-  },
-  feature: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.base,
-    color: 'rgba(255,255,255,0.55)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  primaryBtn: {
-    width: '100%',
-    backgroundColor: Colors.saffron,
-    paddingVertical: 15,
-    borderRadius: Radius.md,
+  footer: {
+    position: 'absolute',
+    bottom: 40,
     alignItems: 'center',
-    marginBottom: 10,
-    shadowColor: Colors.saffron,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
   },
-  primaryBtnText: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['2xl'],
-    color: Colors.white,
-  },
-  secondaryBtn: {
-    width: '100%',
-    paddingVertical: 15,
-    borderRadius: Radius.md,
-    alignItems: 'center',
-    marginBottom: 16,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
-    backgroundColor: 'transparent',
-  },
-  secondaryBtnText: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['2xl'],
-    color: Colors.white,
-  },
-  terms: {
+  footerText: {
     fontFamily: FontFamily.body,
-    fontSize: FontSize.xs,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.25)',
-    textAlign: 'center',
-    marginTop: 4,
+    letterSpacing: 0.5,
   },
 });

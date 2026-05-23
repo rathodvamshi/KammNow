@@ -24,7 +24,8 @@ export interface User {
   expo_push_token: string | null;
   created_at: string;
   updated_at: string;
-  
+  role?: 'provider' | 'seeker' | 'employer';
+
   // Job Preferences (For Matching Algorithm)
   expected_salary?: number;
   preferred_pay_type?: PayType;
@@ -129,7 +130,7 @@ export interface Job {
   poster_name?: string;
   poster_rating?: number;
   poster_avatar?: string | null;
-  
+
   // ── Trust & Ranking Algorithm (Platform Safety) ──
   employer_trust_score?: number; // Pre-calculated trust score from database
   employer_completed_jobs?: number;
@@ -139,12 +140,25 @@ export interface Job {
 
   // ── Search Optimization (FTS) ──
   search_vector?: string; // Pre-computed PostgreSQL Full Text Search vector
-  
+
   distance_km?: number;
 }
 
 export interface JobWithPoster extends Job {
   poster: User;
+}
+
+// ============ CHAT ============
+export type MessageStatus = 'sent' | 'delivered' | 'seen';
+
+export interface Message {
+  id: string;
+  room_id: string;
+  sender_id: string;
+  text: string;
+  status: MessageStatus;
+  created_at: string;
+  attachments?: string[];
 }
 
 // ============ REVIEW / TRUST ============
@@ -163,8 +177,10 @@ export type ApplicationStatus =
   | 'pending'
   | 'accepted'
   | 'rejected'
-  | 'withdrawn'
-  | 'completed';
+  | 'cancelled'
+  | 'cancellation_requested'
+  | 'completed'
+  | 'withdrawn';
 
 export interface Application {
   id: string;
@@ -314,4 +330,22 @@ export interface LocationData {
   lat: number;
   lng: number;
   name?: string;
+}
+
+// ============ FEEDBACK ============
+export interface Feedback {
+  id: string;
+  rating: number;
+  reviewText: string;
+  reviewerId: string;
+  reviewerName: string;
+  reviewerAvatar?: string;
+  reviewerRole: 'provider' | 'seeker';
+  receiverId: string;
+  jobId?: string;
+  jobTitle?: string;
+  reviewImages?: string[];
+  tags: string[];
+  helpfulCount: number;
+  createdAt: string;
 }
