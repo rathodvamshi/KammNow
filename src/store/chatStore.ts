@@ -1,5 +1,10 @@
 import { create } from 'zustand';
 import type { Message } from '../types';
+import { supabase } from '../services/supabase';
+import { firebaseAuth } from '../services/firebaseAuth';
+import { apiFetch } from '../utils/apiClient';
+
+const getApiUrl = () => process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface ChatRoom {
   id: string;
@@ -18,7 +23,9 @@ interface ChatState {
 
   // Actions
   setActiveRoom: (roomId: string | null) => void;
-  fetchRooms: (userId: string) => Promise<void>;
+  isLoading: boolean;
+  error: string | null;
+  fetchRooms: (userId: string, role: "seeker" | "provider") => Promise<void>;
   fetchMessages: (roomId: string) => Promise<void>;
   sendMessage: (roomId: string, senderId: string, text: string, attachments?: string[]) => Promise<void>;
   setTyping: (roomId: string, isTyping: boolean) => void;
@@ -35,87 +42,76 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isTyping: {},
   onlineUsers: {},
   activeRoomId: null,
+  isLoading: false,
+  error: null,
 
   setActiveRoom: (roomId) => set({ activeRoomId: roomId }),
 
-  fetchRooms: async (userId) => {
-    // Mock fetching rooms
-    await new Promise((r) => setTimeout(r, 500));
-    set({
-      rooms: [
-        {
-          id: 'room-1',
-          application_id: 'app-003',
-          provider_id: 'user-003',
-          seeker_id: 'user-001',
-          created_at: new Date().toISOString(),
-        }
-      ]
-    });
+  fetchRooms: async (userId: string, role: 'seeker' | 'provider') => {
+    set({ isLoading: true, error: null });
+    try {
+      const { data, error } = await supabase
+        .from('chat_rooms')
+        .select(`*, job:jobs(*), seeker:users!seeker_id(*), provider:users!provider_id(*)`)
+        .or(`seeker_id.eq.${userId},provider_id.eq.${userId}`);
+      
+      if (error) throw error;
+      set({ rooms: data || [], isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+    }
   },
 
-  fetchMessages: async (roomId) => {
-    // Mock fetching messages
-    await new Promise((r) => setTimeout(r, 500));
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [roomId]: [
-          {
-            id: `msg-${Date.now() - 60000}`,
-            room_id: roomId,
-            sender_id: 'user-003',
-            text: 'Hello, your application was accepted! When can you start?',
-            status: 'seen',
-            created_at: new Date(Date.now() - 60000).toISOString(),
-          }
-        ]
-      }
-    }));
+  fetchMessages: async (roomId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const { data, error } = await supabase
+        .from('chat_messages')
+        .select('*')
+        .eq('room_id', roomId)
+        .order('created_at', { ascending: true });
+        
+      if (error) throw error;
+      
+      set((state) => ({
+        messages: { ...state.messages, [roomId]: data || [] },
+        isLoading: false
+      }));
+
+      // Subscribe to realtime messages
+      supabase
+        .channel(`room_${roomId}`)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${roomId}` }, (payload) => {
+          get().receiveMessage(payload.new as Message);
+        })
+        .subscribe();
+        
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+    }
   },
 
-  sendMessage: async (roomId, senderId, text, attachments) => {
-    const tempId = `msg-${Date.now()}`;
-    const newMsg: Message = {
-      id: tempId,
-      room_id: roomId,
-      sender_id: senderId,
-      text,
-      status: 'sent',
-      created_at: new Date().toISOString(),
-      attachments,
-    };
+  sendMessage: async (roomId: string, senderId: string, content: string) => {
+    try {
+      const token = await firebaseAuth.getIdToken();
+      if (!token) throw new Error('Not authenticated');
 
-    set((state) => ({
-      messages: {
-        ...state.messages,
-        [roomId]: [...(state.messages[roomId] || []), newMsg],
+      const response = await apiFetch(`${getApiUrl()}/api/chat/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ room_id: roomId, message: content })
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || 'Failed to send message');
       }
-    }));
-
-    // Mock server response
-    setTimeout(() => {
-      get().updateMessageStatus(tempId, 'delivered');
-    }, 1000);
-
-    // Mock auto-reply for demo purposes
-    if (senderId === 'user-001') {
-      setTimeout(() => {
-        get().setTyping(roomId, true);
-      }, 1500);
-
-      setTimeout(() => {
-        get().setTyping(roomId, false);
-        const replyMsg: Message = {
-          id: `msg-${Date.now() + 1}`,
-          room_id: roomId,
-          sender_id: 'user-003', // mock provider
-          text: 'Great! Let me know if you need directions.',
-          status: 'sent',
-          created_at: new Date().toISOString(),
-        };
-        get().receiveMessage(replyMsg);
-      }, 3500);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      // Could show a toast here if rate limited
     }
   },
 

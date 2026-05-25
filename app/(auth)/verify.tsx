@@ -28,6 +28,7 @@ import Svg, { Path, Rect } from 'react-native-svg';
 import * as Haptics from 'expo-haptics';
 import { Colors, FontFamily, Radius, Shadow } from '../../src/theme';
 import { useAuthStore } from '../../src/store/authStore';
+import { useUIStore } from '../../src/store/uiStore';
 import { firebaseAuth } from '../../src/services/firebaseAuth';
 import { userService } from '../../src/services/userService';
 import { checkOtpRateLimit, recordOtpRequest } from '../../src/utils/otpRateLimiter';
@@ -299,20 +300,23 @@ export default function VerifyOTPScreen() {
       let user;
 
       if (isNewUser === 'true') {
+        const roleToSet = (profileRole as 'seeker' | 'provider') || 'seeker';
         const result = await userService.createFullProfile(
           firebaseUser.uid,
           phoneWithCode,
           {
             name: profileName || '',
             age: parseInt(profileAge || '0', 10),
-            role: (profileRole as any) || 'seeker',
+            role: roleToSet,
             skills: profileSkills ? JSON.parse(profileSkills) : [],
           }
         );
         user = result.user;
+        useUIStore.getState().setRole(roleToSet);
       } else {
         const result = await userService.createOrGetUser(firebaseUser.uid, phoneWithCode);
         user = result.user;
+        useUIStore.getState().setRole((user.role as 'seeker' | 'provider') || 'seeker');
       }
 
       // Step 3: Persist session keys to SecureStore
@@ -394,7 +398,7 @@ export default function VerifyOTPScreen() {
       <BreathingBlob color="rgba(255,107,0,0.15)" size={280} top={-50} left={-100} />
       <BreathingBlob color="rgba(59,130,246,0.1)" size={220} bottom={100} right={-50} delay={1500} />
 
-      <SafeAreaView style={styles.flex}>
+      <View style={styles.flex}>
         <View style={styles.content}>
           <View style={styles.header}>
             <Animated.View entering={FadeInDown.duration(800).springify()}>
@@ -462,7 +466,7 @@ export default function VerifyOTPScreen() {
             </Pressable>
           </Animated.View>
         </View>
-      </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
   );
 }

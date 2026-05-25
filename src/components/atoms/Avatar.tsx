@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet, ViewStyle } from 'react-native';
+import { Image } from 'expo-image';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Colors, FontFamily, FontSize } from '../../theme';
 import { getInitials, avatarColor } from '../../utils/helpers';
 

@@ -1,6 +1,9 @@
+import { safeGoBack } from '../../../src/utils/navigation';
+import { FlashList } from '@shopify/flash-list';
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import {  } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
@@ -67,23 +70,33 @@ export default function JobApplicationsScreen() {
       statusIcon = 'checkmark-done-circle';
     }
 
+    const applicant = item.applicant;
+    const applicantName = applicant?.name || `Applicant ${item.applicant_id.split('-')[1] || item.applicant_id.substring(0,4)}`;
+    const avatarUrl = applicant?.avatar_url || `https://i.pravatar.cc/150?u=${item.applicant_id}`;
+    const rating = applicant?.worker_rating?.toFixed(1) || 'New';
+    const jobsCount = applicant?.jobs_completed || 0;
+    const skills = applicant?.skills || [];
+    
+    // Calculate distance securely using pre-calculated value from backend
+    let distanceKm: number | undefined = (item as any).distance_km;
+
     return (
       <Animated.View entering={FadeInDown.delay(index * 100).springify()} style={[styles.card, Shadow.md]}>
         <View style={styles.cardHeader}>
           <TouchableOpacity 
             style={styles.profileSection} 
-            onPress={() => router.push(`/profile/${item.applicant_id}` as any)}
+            onPress={() => router.push({ pathname: '/profile/[id]', params: { id: item.applicant_id } })}
             activeOpacity={0.7}
           >
             <View style={styles.avatarWrapper}>
               <Image 
-                source={{ uri: `https://i.pravatar.cc/150?u=${item.applicant_id}` }} 
+                source={{ uri: avatarUrl }} 
                 style={styles.avatar} 
               />
               <View style={styles.onlineBadge} />
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.applicantName}>Applicant {item.applicant_id.split('-')[1]}</Text>
+              <Text style={styles.applicantName} numberOfLines={1}>{applicantName}</Text>
               <Text style={styles.appliedTime}>Applied {formatRelativeTime(item.applied_at)}</Text>
             </View>
           </TouchableOpacity>
@@ -97,17 +110,34 @@ export default function JobApplicationsScreen() {
           <View style={styles.detailRow}>
             <View style={styles.detailItem}>
               <Ionicons name="star" size={16} color={Colors.gold} />
-              <Text style={styles.detailText}>4.8</Text>
+              <Text style={styles.detailText}>{rating}</Text>
             </View>
             <View style={styles.detailItem}>
               <Ionicons name="briefcase-outline" size={16} color={Colors.gray5} />
-              <Text style={styles.detailText}>12 Jobs</Text>
+              <Text style={styles.detailText}>{jobsCount} Jobs</Text>
             </View>
-            <View style={styles.detailItem}>
-              <Ionicons name="location-outline" size={16} color={Colors.saffron} />
-              <Text style={styles.detailText}>2.5 km away</Text>
-            </View>
+            {distanceKm !== undefined && (
+              <View style={styles.detailItem}>
+                <Ionicons name="location-outline" size={16} color={Colors.saffron} />
+                <Text style={styles.detailText}>{distanceKm.toFixed(1)} km away</Text>
+              </View>
+            )}
           </View>
+
+          {skills.length > 0 && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+              {skills.slice(0, 3).map((skill, i) => (
+                <View key={i} style={{ backgroundColor: Colors.saffronLight, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                  <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 11, color: Colors.saffronDark }}>{skill}</Text>
+                </View>
+              ))}
+              {skills.length > 3 && (
+                <View style={{ backgroundColor: Colors.gray2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}>
+                  <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 11, color: Colors.ink2 }}>+{skills.length - 3}</Text>
+                </View>
+              )}
+            </View>
+          )}
           
           {item.description ? (
             <View style={styles.descriptionBox}>
@@ -115,7 +145,7 @@ export default function JobApplicationsScreen() {
             </View>
           ) : (
             <View style={styles.descriptionBox}>
-              <Text style={styles.descriptionText}>"I am very interested in this job and can start immediately. I have relevant experience."</Text>
+              <Text style={[styles.descriptionText, { fontStyle: 'italic', color: Colors.gray4 }]}>No message provided.</Text>
             </View>
           )}
         </View>
@@ -142,15 +172,22 @@ export default function JobApplicationsScreen() {
         {item.status === 'accepted' && (
           <View style={styles.actionRow}>
             <TouchableOpacity 
-              style={[styles.actionBtn, styles.messageBtn]}
-              onPress={() => router.push(`/chat/${item.id}` as any)}
+              style={[styles.actionBtn, styles.messageBtn, { flex: 1 }]}
+              onPress={() => router.push({ pathname: '/chat/[id]', params: { id: `chat:application:${item.id}` } })}
             >
               <Ionicons name="chatbubble-outline" size={18} color={Colors.ink} />
-              <Text style={styles.messageText}>Message Worker</Text>
+              <Text style={styles.messageText}>Message</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionBtn, styles.acceptBtn, { flex: 1.5 }]}
+              onPress={() => handleStatusUpdate(item.id, 'completed')}
+            >
+              <Ionicons name="checkmark-done" size={18} color={Colors.white} />
+              <Text style={styles.acceptText}>Mark Completed</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.actionBtn, styles.profileBtn]}
-              onPress={() => router.push(`/profile/${item.applicant_id}` as any)}
+              onPress={() => router.push({ pathname: '/profile/[id]', params: { id: item.applicant_id } })}
             >
               <Ionicons name="person-circle-outline" size={18} color={Colors.saffron} />
               <Text style={styles.profileText}>View Profile</Text>
@@ -163,11 +200,11 @@ export default function JobApplicationsScreen() {
 
   return (
     <View style={styles.container}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: Colors.navy }} />
+      
       
       <View style={styles.headerWrapper}>
         <View style={styles.subHeader}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton} activeOpacity={0.7}>
+          <TouchableOpacity onPress={() => safeGoBack()} style={styles.backButton} activeOpacity={0.7}>
             <Ionicons name="arrow-back" size={22} color={Colors.white} />
           </TouchableOpacity>
           <View style={styles.subHeaderTitleContainer}>
@@ -177,7 +214,7 @@ export default function JobApplicationsScreen() {
         </View>
       </View>
 
-      <FlatList
+      <FlashList estimatedItemSize={100}
         data={displayApps}
         keyExtractor={(item) => item.id}
         renderItem={renderApplicationCard}

@@ -68,7 +68,7 @@ export type JobCategory =
   | 'other';
 
 export type PayType = 'hour' | 'day' | 'month';
-export type JobStatus = 'live' | 'paused' | 'filled' | 'deleted';
+export type JobStatus = 'active' | 'paused' | 'filled' | 'deleted';
 export type WorkType = 'full_time' | 'part_time' | 'one_time' | 'shift';
 export type SkillLevel = 'beginner' | 'skilled' | 'heavy' | 'any';
 export type PaymentSchedule = 'daily' | 'weekly' | 'monthly';
@@ -91,6 +91,7 @@ export interface Job {
   show_phone: boolean;
   status: JobStatus;
   is_deleted: boolean;
+  applicants_count?: number;
   created_at: string;
   updated_at: string;
 

@@ -1,5 +1,8 @@
 import { create } from 'zustand';
+import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuthStore } from './authStore';
+import { supabase } from '../services/supabase';
 
 const MAX_ADDRESSES = 20;
 const MAX_RECENTS = 10;
@@ -54,8 +57,6 @@ interface AddressState {
   getActive: () => SavedAddress | null;
 }
 
-import { useAuthStore } from './authStore';
-
 const getStorageKeys = () => {
   const user = useAuthStore.getState().user;
   const userSuffix = user ? `_${user.id || user.phone || 'auth'}` : '_guest';
@@ -69,7 +70,7 @@ const persist = async (key: string, data: any) => {
   try {
     await AsyncStorage.setItem(key, JSON.stringify(data));
   } catch (e) {
-    console.warn('AddressStore persist error:', e);
+    Sentry.captureMessage(`${'AddressStore persist error:'} ${e}`);
   }
 };
 
@@ -82,12 +83,58 @@ export const useAddressStore = create<AddressState>((set, get) => ({
   loadFromStorage: async () => {
     try {
       const keys = getStorageKeys();
-      const [addrRaw, recentRaw] = await Promise.all([
-        AsyncStorage.getItem(keys.addresses),
-        AsyncStorage.getItem(keys.recents),
-      ]);
-      const savedAddresses: SavedAddress[] = addrRaw ? JSON.parse(addrRaw) : [];
+      const user = useAuthStore.getState().user;
+      
+      let savedAddresses: SavedAddress[] = [];
+
+      // 1. Try to fetch from Supabase if authenticated
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from('user_location')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('is_deleted', false)
+            .order('updated_at', { ascending: false });
+
+          if (data && !error) {
+            savedAddresses = data.map(d => ({
+              id: d.id,
+              label: (d.label as AddressLabel) || 'other',
+              flatHouse: d.flat_house || '',
+              street: d.address || '',
+              area: d.area || '',
+              landmark: d.landmark || '',
+              city: d.city || '',
+              state: d.state || '',
+              pincode: d.pincode || '',
+              lat: d.latitude || 0,
+              lng: d.longitude || 0,
+              isDefault: d.is_default || false,
+              createdAt: new Date(d.created_at).getTime(),
+              lastUsed: new Date(d.updated_at).getTime(),
+            }));
+            
+            // Sync cloud data back to local storage
+            await persist(keys.addresses, savedAddresses);
+          } else if (error) {
+            console.warn("Supabase fetch address error:", error);
+          }
+        } catch (e) {
+          console.warn("Supabase exception:", e);
+        }
+      }
+
+      // 2. If Supabase failed or empty (or guest), fallback to Local Storage
+      if (savedAddresses.length === 0) {
+        const addrRaw = await AsyncStorage.getItem(keys.addresses);
+        if (addrRaw) savedAddresses = JSON.parse(addrRaw);
+      }
+
+      // Load Recent Searches (Local only)
+      const recentRaw = await AsyncStorage.getItem(keys.recents);
       const recentSearches: RecentSearch[] = recentRaw ? JSON.parse(recentRaw) : [];
+
       const defaultAddr = savedAddresses.find((a) => a.isDefault);
       set({
         savedAddresses,
@@ -101,80 +148,105 @@ export const useAddressStore = create<AddressState>((set, get) => ({
   },
 
   addAddress: async (addr) => {
-    const id = `addr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const user = useAuthStore.getState().user;
+    let savedId = `addr_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const now = Date.now();
-    const newAddr: SavedAddress = { ...addr, id, createdAt: now, lastUsed: now };
+    let newAddr: SavedAddress = { ...addr, id: savedId, createdAt: now, lastUsed: now };
 
-    const state = get();
+    if (user) {
+      if (addr.isDefault) {
+        await supabase.from('user_location').update({ is_default: false }).eq('user_id', user.id);
+      }
+      const { data, error } = await supabase.from('user_location').insert({
+        user_id: user.id,
+        latitude: addr.lat,
+        longitude: addr.lng,
+        address: addr.street,
+        city: addr.city,
+        state: addr.state,
+        pincode: addr.pincode,
+        label: addr.label,
+        flat_house: addr.flatHouse,
+        area: addr.area,
+        landmark: addr.landmark,
+        is_default: addr.isDefault
+      }).select().single();
 
-    // Deduplicate: if an address with same lat/lng (within ~50m) already exists, just activate it
-    const THRESHOLD = 0.0005; // ~50 metres
-    const existing = state.savedAddresses.find(
-      (a) =>
-        Math.abs(a.lat - addr.lat) < THRESHOLD &&
-        Math.abs(a.lng - addr.lng) < THRESHOLD
-    );
-    if (existing) {
-      // Just update lastUsed and set active — no new entry
-      const updated = state.savedAddresses.map((a) =>
-        a.id === existing.id ? { ...a, lastUsed: now } : a
-      );
-      set({ savedAddresses: updated, activeAddressId: existing.id });
-      const keys = getStorageKeys();
-      await persist(keys.addresses, updated);
-      return existing.id;
+      if (data && !error) {
+        savedId = data.id;
+        newAddr.id = savedId;
+      }
     }
 
-    // If this is default, un-default all others
+    const state = get();
     const existingList = addr.isDefault
       ? state.savedAddresses.map((a) => ({ ...a, isDefault: false }))
       : [...state.savedAddresses];
 
-    // FIFO: prune to MAX_ADDRESSES
     const next = [newAddr, ...existingList].slice(0, MAX_ADDRESSES);
-    const newActiveId = addr.isDefault ? id : (state.activeAddressId ?? id);
+    const newActiveId = addr.isDefault ? savedId : (state.activeAddressId ?? savedId);
 
     set({ savedAddresses: next, activeAddressId: newActiveId });
-
-    const keys = getStorageKeys();
-    await persist(keys.addresses, next);
-    return id;
+    await persist(getStorageKeys().addresses, next);
+    return savedId;
   },
 
   editAddress: async (id, partial) => {
+    const user = useAuthStore.getState().user;
+    
+    if (user && !id.startsWith('addr_')) {
+      // It's a Supabase UUID
+      if (partial.isDefault) {
+        await supabase.from('user_location').update({ is_default: false }).eq('user_id', user.id);
+      }
+      
+      const updatePayload: any = {};
+      if (partial.lat !== undefined) updatePayload.latitude = partial.lat;
+      if (partial.lng !== undefined) updatePayload.longitude = partial.lng;
+      if (partial.street !== undefined) updatePayload.address = partial.street;
+      if (partial.city !== undefined) updatePayload.city = partial.city;
+      if (partial.state !== undefined) updatePayload.state = partial.state;
+      if (partial.pincode !== undefined) updatePayload.pincode = partial.pincode;
+      if (partial.label !== undefined) updatePayload.label = partial.label;
+      if (partial.flatHouse !== undefined) updatePayload.flat_house = partial.flatHouse;
+      if (partial.area !== undefined) updatePayload.area = partial.area;
+      if (partial.landmark !== undefined) updatePayload.landmark = partial.landmark;
+      if (partial.isDefault !== undefined) updatePayload.is_default = partial.isDefault;
+      updatePayload.updated_at = new Date().toISOString();
+
+      await supabase.from('user_location').update(updatePayload).eq('id', id);
+    }
+
     const state = get();
-    const updated = state.savedAddresses.map((a) =>
-      a.id === id ? { ...a, ...partial } : a
-    );
+    let updated = state.savedAddresses.map((a) => a.id === id ? { ...a, ...partial } : a);
+    
+    if (partial.isDefault) {
+       updated = updated.map(a => a.id !== id ? { ...a, isDefault: false } : a);
+    }
+
     set({ savedAddresses: updated });
-    const keys = getStorageKeys();
-    await persist(keys.addresses, updated);
+    await persist(getStorageKeys().addresses, updated);
   },
 
   deleteAddress: async (id) => {
+    const user = useAuthStore.getState().user;
+    
+    if (user && !id.startsWith('addr_')) {
+      await supabase.from('user_location').update({ is_deleted: true }).eq('id', id);
+    }
+
     const state = get();
     const updated = state.savedAddresses.filter((a) => a.id !== id);
     const newActiveId = state.activeAddressId === id
       ? (updated.find((a) => a.isDefault)?.id ?? updated[0]?.id ?? null)
       : state.activeAddressId;
 
-    // Update state first so UI reacts immediately
     set({ savedAddresses: updated, activeAddressId: newActiveId });
-
-    // Then persist to storage
-    const keys = getStorageKeys();
-    await persist(keys.addresses, updated);
+    await persist(getStorageKeys().addresses, updated);
   },
 
   setDefault: async (id) => {
-    const state = get();
-    const updated = state.savedAddresses.map((a) => ({
-      ...a,
-      isDefault: a.id === id,
-    }));
-    set({ savedAddresses: updated, activeAddressId: id });
-    const keys = getStorageKeys();
-    await persist(keys.addresses, updated);
+    await get().editAddress(id, { isDefault: true });
   },
 
   setActive: (id) => {
@@ -184,8 +256,7 @@ export const useAddressStore = create<AddressState>((set, get) => ({
         a.id === id ? { ...a, lastUsed: Date.now() } : a
       );
       set({ activeAddressId: id, savedAddresses: updated });
-      const keys = getStorageKeys();
-      persist(keys.addresses, updated);
+      persist(getStorageKeys().addresses, updated);
     } else {
       set({ activeAddressId: null });
     }
@@ -203,13 +274,11 @@ export const useAddressStore = create<AddressState>((set, get) => ({
       timestamp: Date.now(),
     };
     set((state) => {
-      // Deduplicate by address
       const filtered = state.recentSearches.filter(
         (r) => r.address.toLowerCase() !== search.address.toLowerCase()
       );
       const next = [item, ...filtered].slice(0, MAX_RECENTS);
-      const keys = getStorageKeys();
-      persist(keys.recents, next);
+      persist(getStorageKeys().recents, next);
       return { recentSearches: next };
     });
   },
@@ -220,4 +289,3 @@ export const useAddressStore = create<AddressState>((set, get) => ({
     set({ recentSearches: [] });
   },
 }));
-

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as Sentry from '@sentry/react-native';
 import { View } from 'react-native';
 import { Tabs, router } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
@@ -7,12 +8,15 @@ import { useLocationStore } from '../../src/store/locationStore';
 import { reverseGeocode } from '../../src/utils/geocoding';
 
 export default function TabsLayout() {
-  const { lat } = useLocationStore();
+  const { lat, sessionLocationConfirmed } = useLocationStore();
   const [promptSheetMode, setPromptSheetMode] = useState<'permission_needed' | 'gps_off'>('permission_needed');
   const [isLocationSheetVisible, setIsLocationSheetVisible] = useState(false);
 
   useEffect(() => {
-    if (!lat) {
+    if (!sessionLocationConfirmed) {
+      setPromptSheetMode('permission_needed');
+      setIsLocationSheetVisible(true);
+    } else if (!lat) {
       const checkStatus = async () => {
         const gpsEnabled = await ExpoLocation.hasServicesEnabledAsync();
         if (!gpsEnabled) {
@@ -24,7 +28,7 @@ export default function TabsLayout() {
     } else {
       setIsLocationSheetVisible(false);
     }
-  }, [lat]);
+  }, [lat, sessionLocationConfirmed]);
 
   const handleEnableLocation = async () => {
     const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
@@ -41,7 +45,7 @@ export default function TabsLayout() {
         useLocationStore.getState().setPermission(true);
         setIsLocationSheetVisible(false);
       } catch (err) {
-        console.warn('Failed to get location', err);
+        Sentry.captureMessage(`${'Failed to get location'} ${err}`);
       }
     }
   };
@@ -65,20 +69,9 @@ export default function TabsLayout() {
       <LocationPromptBottomSheet
         mode={promptSheetMode}
         visible={isLocationSheetVisible}
+        isMandatory={!sessionLocationConfirmed}
         onClose={handleClose}
-        onSelectOnMap={() => {
-          router.push('/location/map-picker');
-        }}
-        onSearchManually={() => {
-          router.push('/location/saved-addresses');
-        }}
-        onContinueSaved={() => {
-          if (useLocationStore.getState().lat) {
-            setIsLocationSheetVisible(false);
-          }
-        }}
         onEnableLocation={handleEnableLocation}
-        hasSavedAddresses={false}
       />
     </View>
   );

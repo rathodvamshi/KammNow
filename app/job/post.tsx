@@ -1,3 +1,5 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FlashList } from '@shopify/flash-list';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -6,14 +8,21 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  SafeAreaView,
   Alert,
   KeyboardAvoidingView,
   Platform,
   Animated,
   Modal,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { FloatingLabelInput } from '../../src/components/atoms/FloatingLabelInput';
 import { router } from 'expo-router';
+import { safeGoBack } from '../../src/utils/navigation';
+import { useJobStore } from '../../src/store/jobStore';
+import { useAddressStore } from '../../src/store/addressStore';
+import { useLocationStore } from '../../src/store/locationStore';
+import { reverseGeocode } from '../../src/utils/geocoding';
+
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Colors, FontFamily, FontSize, Radius, Spacing, Shadow, Motion } from '../../src/theme';
@@ -56,6 +65,14 @@ const CATEGORIES: { key: JobCategory; label: string; icon: string }[] = [
 const COMMON_SKILLS = [
   'Bike Riding', 'Driving', 'Packing', 'Cleaning',
   'Cooking', 'Communication', 'Heavy Lifting', 'Customer Handling',
+];
+
+const ALL_SKILLS = [
+  ...COMMON_SKILLS,
+  'English Speaking', 'Hindi Speaking', 'Regional Language', 'Basic Computer',
+  'Excel/Data Entry', 'Forklift Operation', 'Welding', 'Carpentry',
+  'Electrical Work', 'Plumbing', 'Painting', 'Event Management',
+  'Serving/Waiting', 'Cash Handling', 'Inventory Management'
 ];
 
 const STEPS = [
@@ -188,21 +205,56 @@ const PickerButton = ({
     <Text style={value ? styles.pickerBtnText : (hasError ? styles.pickerBtnPlaceholderError : styles.pickerBtnPlaceholder)}>
       {value || label}
     </Text>
-    <Ionicons name="chevron-down" size={16} color={hasError ? Colors.red : Colors.gray4} />
+    <Ionicons name="calendar-outline" size={16} color={hasError ? Colors.red : Colors.gray4} />
   </TouchableOpacity>
 );
+
+const AlarmPickerButton = ({
+  label, value, onPress, hasError,
+}: { label: string; value: string; onPress: () => void; hasError?: boolean }) => {
+  const parts = value ? value.split(' ') : null;
+  return (
+    <TouchableOpacity
+      style={[
+        {
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+          backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1.5,
+          borderColor: hasError ? Colors.red : Colors.gray2, paddingVertical: 14, paddingHorizontal: 16
+        },
+        hasError && { backgroundColor: Colors.red + '0A' }
+      ]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      <Ionicons name="alarm-outline" size={24} color={value ? Colors.saffron : (hasError ? Colors.red : Colors.gray4)} />
+      {value ? (
+        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 4 }}>
+          <Text style={{ fontFamily: FontFamily.headingBold, fontSize: 24, color: Colors.ink, letterSpacing: -0.5 }}>{parts?.[0]}</Text>
+          <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 14, color: Colors.saffron }}>{parts?.[1]}</Text>
+        </View>
+      ) : (
+        <Text style={{ fontFamily: FontFamily.bodyMedium, fontSize: 16, color: hasError ? Colors.red : Colors.gray4 }}>{label}</Text>
+      )}
+    </TouchableOpacity>
+  );
+};
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function PostJobScreen() {
+  const insets = useSafeAreaInsets();
   const [currentStep, setCurrentStep] = useState(1);
   const [isPosting, setIsPosting] = useState(false);
   const [posted, setPosted] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // STEP 1: Basic Details
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState<JobCategory>('delivery');
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showAllSkills, setShowAllSkills] = useState(false);
   const [description, setDescription] = useState('');
 
   // STEP 2: Work Type
@@ -239,6 +291,9 @@ export default function PostJobScreen() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [genderPref, setGenderPref] = useState<'any' | 'male' | 'female'>('any');
   const [contactMethod, setContactMethod] = useState<'in_app_chat' | 'phone_call' | 'whatsapp'>('in_app_chat');
+
+  const { savedAddresses } = useAddressStore();
+  const { lat, lng } = useLocationStore();
 
   // STEP 5: Review
   const [visibility, setVisibility] = useState<'public' | 'private'>('public');
@@ -308,9 +363,9 @@ export default function PostJobScreen() {
 
     if (currentStep === 1) {
       if (!title.trim()) newErrors.title = 'Job title is required';
-      if (description.length < 20) newErrors.description = description.length === 0
+      if (description.length < 30) newErrors.description = description.length === 0
         ? 'Job description is required'
-        : `Too short — add ${20 - description.length} more characters`;
+        : `Too short — add ${30 - description.length} more characters`;
     }
 
     if (currentStep === 2) {
@@ -350,22 +405,84 @@ export default function PostJobScreen() {
     return true;
   };
 
+  const isStepValid = (): boolean => {
+    if (currentStep === 1) {
+      if (!title.trim() || description.length < 30) return false;
+    }
+    if (currentStep === 2) {
+      if (workType === 'hour' && (!shiftStart || !shiftEnd || !hourlyRate)) return false;
+      if (workType === 'day' && (!dailyWage || !numberOfDays || !dailyShiftStart || !dailyShiftEnd || !dailyStartDate)) return false;
+      if (workType === 'month' && (!monthlySalary || !monthlyShiftStart || !monthlyShiftEnd || !joiningDate)) return false;
+    }
+    if (currentStep === 3) {
+      if (!fullAddress.trim()) return false;
+    }
+    return true;
+  };
+
+  const triggerShake = () => {
+    shakeAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
+
   const handleNext = () => {
-    if (!validateStep()) return;
+    if (!validateStep()) {
+      triggerShake();
+      scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      return;
+    }
     if (currentStep < 5) animateToStep(currentStep + 1);
   };
 
   const handleBack = () => {
     if (currentStep > 1) animateToStep(currentStep - 1);
-    else router.back();
+    else safeGoBack();
   };
 
   const handlePost = async () => {
     if (!validateStep()) return;
     setIsPosting(true);
-    await new Promise(r => setTimeout(r, 1500));
-    setIsPosting(false);
-    setPosted(true);
+    
+    try {
+      const jobData = {
+        title,
+        description,
+        category_id: category,
+        job_type: workType,
+        salary: workType === 'hour'
+          ? parseFloat(hourlyRate)
+          : workType === 'day'
+          ? parseFloat(dailyWage)
+          : parseFloat(monthlySalary),
+        salary_type: workType,
+        experience_required: experienceRequired,
+        // ── Location (flat + PostGIS) ──
+        latitude: locationCoords.latitude,
+        longitude: locationCoords.longitude,
+        location_name: fullAddress.split(',')[0]?.trim() || 'Location', // first part as short name
+        full_address: fullAddress,
+        // ── Workers & Skills ──
+        required_skills: selectedSkills,
+        // ── Job flags ──
+        is_urgent: isUrgent,
+        gender_preference: genderPref,
+        contact_method: contactMethod,
+        // ── Workers count ──
+        quantity_total: workersNeeded,
+      };
+      
+      await useJobStore.getState().createJob(jobData);
+      setPosted(true);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Failed to post job');
+    } finally {
+      setIsPosting(false);
+    }
   };
 
   const getEstimatedCost = () => {
@@ -378,7 +495,7 @@ export default function PostJobScreen() {
   if (posted) {
     return (
       <View style={styles.successScreen}>
-        <SafeAreaView style={{ backgroundColor: Colors.navy }} />
+        
         <View style={styles.successContent}>
           <View style={styles.successIconWrap}>
             <Text style={{ fontSize: 48 }}>🎉</Text>
@@ -425,53 +542,130 @@ export default function PostJobScreen() {
             <Text style={styles.stepTitle}>What's the job?</Text>
             <Text style={styles.stepSubtitle}>Clear titles get 3× more applicants</Text>
 
-            <View style={styles.field}>
-              <FieldLabel>Job Title *</FieldLabel>
-              <StyledInput
-                value={title}
-                onChangeText={(v: string) => { setTitle(v); clearError('title'); }}
-                placeholder="e.g. Delivery Boy Needed Urgently"
-                hasError={!!errors.title}
-              />
-              <ErrorMsg msg={errors.title} />
-            </View>
+            {/* Smart Suggestions for Title */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.suggestionScroll}>
+              {['Delivery Executive', 'Warehouse Helper', 'Office Assistant', 'Driver'].map((sug) => (
+                <TouchableOpacity
+                  key={sug}
+                  style={styles.suggestionChip}
+                  onPress={() => { setTitle(sug); clearError('title'); }}
+                >
+                  <Text style={styles.suggestionChipText}>{sug}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
-            <View style={styles.field}>
-              <FieldLabel>Category *</FieldLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
-                {CATEGORIES.map(cat => (
-                  <TouchableOpacity
-                    key={cat.key}
-                    style={[styles.categoryCard, category === cat.key && styles.categoryCardActive]}
-                    onPress={() => setCategory(cat.key)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.categoryIcon}>{cat.icon}</Text>
-                    <Text style={[styles.categoryLabel, category === cat.key && styles.categoryLabelActive]}>
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+            <FloatingLabelInput
+              label="Job Title *"
+              value={title}
+              onChangeText={(v: string) => { setTitle(v); clearError('title'); }}
+              placeholder="e.g. Delivery Boy Needed Urgently"
+              error={errors.title}
+            />
+
+            <View style={[styles.field, { marginTop: 12 }]}>
+              <Text style={styles.sectionLabelPremium}>Select Category *</Text>
+              
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 12, paddingTop: 4 }}>
+                {CATEGORIES.slice(0, 10).map((cat) => {
+                  const isActive = category === cat.key;
+                  return (
+                    <TouchableOpacity
+                      key={cat.key}
+                      style={[
+                        { alignItems: 'center', justifyContent: 'center', width: 72, height: 72, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: isActive ? Colors.saffron : Colors.gray2, backgroundColor: isActive ? Colors.saffronLight : Colors.white },
+                        isActive && Shadow.sm
+                      ]}
+                      onPress={() => setCategory(cat.key)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 24, marginBottom: 4 }}>{cat.icon}</Text>
+                      <Text style={{ fontFamily: isActive ? FontFamily.bodySemiBold : FontFamily.bodyMedium, fontSize: 10, color: isActive ? Colors.saffronDark : Colors.ink2, textAlign: 'center' }} numberOfLines={1}>
+                        {cat.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={{ alignItems: 'center', justifyContent: 'center', width: 72, height: 72, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: Colors.gray2, backgroundColor: Colors.gray1 }}
+                  onPress={() => setShowAllCategories(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="grid" size={24} color={Colors.gray4} />
+                  <Text style={{ fontFamily: FontFamily.bodyMedium, fontSize: 10, color: Colors.ink2, textAlign: 'center', marginTop: 4 }}>View More</Text>
+                </TouchableOpacity>
               </ScrollView>
             </View>
 
-            <View style={styles.field}>
-              <FieldLabel>Description *</FieldLabel>
-              <StyledInput
-                value={description}
-                onChangeText={(v: string) => { setDescription(v); clearError('description'); }}
-                placeholder={'Describe the work clearly...\n• What work is needed?\n• When and how long?\n• Any requirements?'}
-                multiline
-                maxLength={500}
-                hasError={!!errors.description}
-              />
-              <View style={styles.charCountRow}>
-                <ErrorMsg msg={errors.description} />
-                <Text style={[styles.charCount, description.length > 450 && { color: Colors.red }]}>
-                  {description.length}/500
-                </Text>
+            <View style={[styles.field, { marginTop: 12 }]}>
+              <Text style={styles.sectionLabelPremium}>Job Description *</Text>
+              <View style={[
+                {
+                  borderColor: description.length > 0 && description.length < 30 ? Colors.red : (description.length >= 30 ? Colors.green : Colors.gray2),
+                  borderWidth: 1.5,
+                  borderRadius: Radius.lg,
+                  backgroundColor: Colors.white,
+                  padding: 12
+                }
+              ]}>
+                <TextInput
+                  style={[styles.textarea, { borderBottomWidth: 0, paddingHorizontal: 0, paddingTop: 0, minHeight: 100 }]}
+                  value={description}
+                  onChangeText={(v: string) => { setDescription(v); clearError('description'); }}
+                  placeholder={'Describe the work clearly...\\n• What work is needed?\\n• When and how long?\\n• Any requirements?'}
+                  placeholderTextColor={PLACEHOLDER_COLOR}
+                  multiline
+                  maxLength={500}
+                  textAlignVertical="top"
+                />
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                  <Text style={{ fontFamily: FontFamily.bodyMedium, fontSize: 12, color: description.length > 0 && description.length < 30 ? Colors.red : Colors.gray4 }}>
+                    {description.length < 30 ? `Min 30 chars required (${description.length}/30)` : 'Looks good!'}
+                  </Text>
+                  <Text style={[styles.charCountPremium, description.length > 450 && { color: Colors.red }]}>
+                    {description.length}/500
+                  </Text>
+                </View>
               </View>
+              <ErrorMsg msg={errors.description} />
             </View>
+
+            {/* View More Categories Modal */}
+            <Modal visible={showAllCategories} animationType="slide" transparent={true} onRequestClose={() => setShowAllCategories(false)}>
+              <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+                <View style={{ backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <Text style={{ fontFamily: FontFamily.headingBold, fontSize: 20, color: Colors.ink }}>All Categories</Text>
+                    <TouchableOpacity onPress={() => setShowAllCategories(false)}>
+                      <Ionicons name="close" size={24} color={Colors.ink} />
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, paddingBottom: 40 }}>
+                      {CATEGORIES.map((cat) => {
+                        const isActive = category === cat.key;
+                        return (
+                          <TouchableOpacity
+                            key={cat.key}
+                            style={[
+                              { alignItems: 'center', justifyContent: 'center', width: '30%', height: 80, borderRadius: Radius.lg, borderWidth: 1.5, borderColor: isActive ? Colors.saffron : Colors.gray2, backgroundColor: isActive ? Colors.saffronLight : Colors.white },
+                              isActive && Shadow.sm
+                            ]}
+                            onPress={() => { setCategory(cat.key); setShowAllCategories(false); }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={{ fontSize: 24, marginBottom: 4 }}>{cat.icon}</Text>
+                            <Text style={{ fontFamily: isActive ? FontFamily.bodySemiBold : FontFamily.bodyMedium, fontSize: 11, color: isActive ? Colors.saffronDark : Colors.ink2, textAlign: 'center' }} numberOfLines={1}>
+                              {cat.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
+                </View>
+              </View>
+            </Modal>
           </View>
         );
 
@@ -510,14 +704,14 @@ export default function PostJobScreen() {
                     <FieldLabel>Shift Start *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={shiftStart} onChange={(v) => { setShiftStart(v); clearError('shiftStart'); }} />
-                      : <PickerButton label="Select Time" value={shiftStart} hasError={!!errors.shiftStart} onPress={() => { openPicker('time', 'hourlyStart'); clearError('shiftStart'); }} />}
+                      : <AlarmPickerButton label="Set Start" value={shiftStart} hasError={!!errors.shiftStart} onPress={() => { openPicker('time', 'hourlyStart'); clearError('shiftStart'); }} />}
                     <ErrorMsg msg={errors.shiftStart} />
                   </View>
                   <View style={styles.fieldCol}>
                     <FieldLabel>Shift End *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={shiftEnd} onChange={(v) => { setShiftEnd(v); clearError('shiftEnd'); }} />
-                      : <PickerButton label="Select Time" value={shiftEnd} hasError={!!errors.shiftEnd} onPress={() => { openPicker('time', 'hourlyEnd'); clearError('shiftEnd'); }} />}
+                      : <AlarmPickerButton label="Set End" value={shiftEnd} hasError={!!errors.shiftEnd} onPress={() => { openPicker('time', 'hourlyEnd'); clearError('shiftEnd'); }} />}
                     <ErrorMsg msg={errors.shiftEnd} />
                   </View>
                 </View>
@@ -582,14 +776,14 @@ export default function PostJobScreen() {
                     <FieldLabel>Shift Start *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={dailyShiftStart} onChange={(v) => { setDailyShiftStart(v); clearError('dailyShiftStart'); }} />
-                      : <PickerButton label="Select Time" value={dailyShiftStart} hasError={!!errors.dailyShiftStart} onPress={() => { openPicker('time', 'dailyStart'); clearError('dailyShiftStart'); }} />}
+                      : <AlarmPickerButton label="Set Start" value={dailyShiftStart} hasError={!!errors.dailyShiftStart} onPress={() => { openPicker('time', 'dailyStart'); clearError('dailyShiftStart'); }} />}
                     <ErrorMsg msg={errors.dailyShiftStart} />
                   </View>
                   <View style={styles.fieldCol}>
                     <FieldLabel>Shift End *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={dailyShiftEnd} onChange={(v) => { setDailyShiftEnd(v); clearError('dailyShiftEnd'); }} />
-                      : <PickerButton label="Select Time" value={dailyShiftEnd} hasError={!!errors.dailyShiftEnd} onPress={() => { openPicker('time', 'dailyEnd'); clearError('dailyShiftEnd'); }} />}
+                      : <AlarmPickerButton label="Set End" value={dailyShiftEnd} hasError={!!errors.dailyShiftEnd} onPress={() => { openPicker('time', 'dailyEnd'); clearError('dailyShiftEnd'); }} />}
                     <ErrorMsg msg={errors.dailyShiftEnd} />
                   </View>
                 </View>
@@ -635,14 +829,14 @@ export default function PostJobScreen() {
                     <FieldLabel>Shift Start *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={monthlyShiftStart} onChange={(v) => { setMonthlyShiftStart(v); clearError('monthlyShiftStart'); }} />
-                      : <PickerButton label="Select Time" value={monthlyShiftStart} hasError={!!errors.monthlyShiftStart} onPress={() => { openPicker('time', 'monthlyStart'); clearError('monthlyShiftStart'); }} />}
+                      : <AlarmPickerButton label="Set Start" value={monthlyShiftStart} hasError={!!errors.monthlyShiftStart} onPress={() => { openPicker('time', 'monthlyStart'); clearError('monthlyShiftStart'); }} />}
                     <ErrorMsg msg={errors.monthlyShiftStart} />
                   </View>
                   <View style={styles.fieldCol}>
                     <FieldLabel>Shift End *</FieldLabel>
                     {Platform.OS === 'web'
                       ? <WebInput mode="time" value={monthlyShiftEnd} onChange={(v) => { setMonthlyShiftEnd(v); clearError('monthlyShiftEnd'); }} />
-                      : <PickerButton label="Select Time" value={monthlyShiftEnd} hasError={!!errors.monthlyShiftEnd} onPress={() => { openPicker('time', 'monthlyEnd'); clearError('monthlyShiftEnd'); }} />}
+                      : <AlarmPickerButton label="Set End" value={monthlyShiftEnd} hasError={!!errors.monthlyShiftEnd} onPress={() => { openPicker('time', 'monthlyEnd'); clearError('monthlyShiftEnd'); }} />}
                     <ErrorMsg msg={errors.monthlyShiftEnd} />
                   </View>
                 </View>
@@ -690,13 +884,63 @@ export default function PostJobScreen() {
             <Text style={styles.stepTitle}>Job Location</Text>
             <Text style={styles.stepSubtitle}>Workers within 5km will see this first</Text>
 
+            <View style={[styles.field, { marginBottom: 16 }]}>
+              <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 13, color: Colors.ink2, marginBottom: 8 }}>Quick Select</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.saffronLight, paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.round, borderWidth: 1, borderColor: Colors.saffron }}
+                  onPress={async () => {
+                    if (lat && lng) {
+                      setLocationCoords({ latitude: lat, longitude: lng });
+                      const geo = await reverseGeocode(lat, lng);
+                      if (geo.fullAddress) {
+                        setFullAddress(geo.fullAddress);
+                        clearError('fullAddress');
+                      }
+                    } else {
+                      Alert.alert('Location not available', 'Please enable location permissions.');
+                    }
+                  }}
+                >
+                  <Ionicons name="navigate" size={16} color={Colors.saffronDark} style={{ marginRight: 6 }} />
+                  <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 13, color: Colors.saffronDark }}>Current Location</Text>
+                </TouchableOpacity>
+
+                {savedAddresses.map((addr) => (
+                  <TouchableOpacity
+                    key={addr.id}
+                    style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.white, paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.round, borderWidth: 1, borderColor: Colors.gray2 }}
+                    onPress={() => {
+                      setLocationCoords({ latitude: addr.lat, longitude: addr.lng });
+                      const addressStr = [addr.flatHouse, addr.street, addr.area, addr.city].filter(Boolean).join(', ');
+                      setFullAddress(addressStr);
+                      clearError('fullAddress');
+                    }}
+                  >
+                    <Ionicons name={addr.label === 'home' ? 'home-outline' : addr.label === 'work' ? 'briefcase-outline' : 'location-outline'} size={16} color={Colors.ink2} style={{ marginRight: 6 }} />
+                    <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 13, color: Colors.ink2 }}>
+                      {addr.label.charAt(0).toUpperCase() + addr.label.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
             <View style={styles.field}>
               <FieldLabel>📍 Pin Job Location</FieldLabel>
               <View style={styles.mapPreview}>
                 <JobPostMap
                   latitude={locationCoords.latitude}
                   longitude={locationCoords.longitude}
-                  onSelect={setLocationCoords}
+                  onSelect={(coords) => {
+                    setLocationCoords(coords);
+                    reverseGeocode(coords.latitude, coords.longitude).then(geo => {
+                      if (geo.fullAddress) {
+                        setFullAddress(geo.fullAddress);
+                        clearError('fullAddress');
+                      }
+                    });
+                  }}
                 />
               </View>
             </View>
@@ -729,13 +973,46 @@ export default function PostJobScreen() {
             </View>
 
             <View style={styles.field}>
-              <FieldLabel>Skills Preferred</FieldLabel>
-              <ChipSelector
-                options={COMMON_SKILLS.map(s => ({ key: s, label: s }))}
-                value={selectedSkills}
-                onChange={setSelectedSkills}
-                multiSelect
-              />
+              <FieldLabel>Skills Preferred (Max 10)</FieldLabel>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                {COMMON_SKILLS.map((skill) => {
+                  const isActive = selectedSkills.includes(skill);
+                  return (
+                    <TouchableOpacity
+                      key={skill}
+                      style={{
+                        paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.round,
+                        backgroundColor: isActive ? Colors.saffron : Colors.gray1,
+                        borderWidth: 1, borderColor: isActive ? Colors.saffronDark : Colors.gray2,
+                      }}
+                      onPress={() => {
+                        if (!isActive && selectedSkills.length >= 10) {
+                          Alert.alert('Limit Reached', 'You can select up to 10 skills per job.');
+                          return;
+                        }
+                        setSelectedSkills(isActive ? selectedSkills.filter(s => s !== skill) : [...selectedSkills, skill]);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ fontFamily: isActive ? FontFamily.bodySemiBold : FontFamily.bodyMedium, fontSize: 14, color: isActive ? Colors.white : Colors.ink2 }}>
+                        {skill}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 16, paddingVertical: 10, borderRadius: Radius.round,
+                    backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.gray2,
+                    flexDirection: 'row', alignItems: 'center'
+                  }}
+                  onPress={() => setShowAllSkills(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="apps-outline" size={14} color={Colors.ink2} style={{ marginRight: 4 }} />
+                  <Text style={{ fontFamily: FontFamily.bodySemiBold, fontSize: 14, color: Colors.ink2 }}>View More</Text>
+                </TouchableOpacity>
+              </ScrollView>
             </View>
 
             <View style={styles.field}>
@@ -846,57 +1123,68 @@ export default function PostJobScreen() {
 
   // ── Layout ───────────────────────────────────────────────────────────────
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.headerBack} onPress={handleBack} activeOpacity={0.8}>
-            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+    <View style={styles.screen}>
+      <LinearGradient
+        colors={['#1E293B', '#0F172A']}
+        style={[styles.premiumHeader, { paddingTop: insets.top + 12 }]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.headerTopRowPremium}>
+          <TouchableOpacity style={styles.headerBackPremium} onPress={handleBack} activeOpacity={0.8}>
+            <Ionicons name="arrow-back" size={20} color={Colors.white} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Post a Job</Text>
-          <View style={{ width: 40 }} />
+          <View style={{flex: 1, marginLeft: 16}}>
+            <Text style={styles.headerTitlePremium}>Post a Job</Text>
+            <Text style={styles.headerSubtitlePremium}>Create a job posting and find workers faster</Text>
+          </View>
+          <View style={styles.progressPctBox}>
+            <Text style={styles.progressPctText}>{Math.round(((currentStep - 1) / 4) * 100)}%</Text>
+          </View>
         </View>
-      </SafeAreaView>
 
-      {/* Progress Bar */}
-      <View style={styles.progressSection}>
-        <View style={styles.progressBarBg}>
-          <Animated.View
-            style={[
-              styles.progressBarFill,
-              { width: `${(currentStep / 5) * 100}%` as any },
-            ]}
-          />
-        </View>
-        <View style={styles.stepsRow}>
-          {STEPS.map(step => {
-            const isDone = currentStep > step.id;
-            const isCurrent = currentStep === step.id;
-            return (
-              <TouchableOpacity
-                key={step.id}
-                style={styles.stepDot}
-                onPress={() => currentStep > step.id && animateToStep(step.id)}
-                activeOpacity={0.7}
-              >
-                <View style={[
-                  styles.stepDotCircle,
-                  isDone && styles.stepDotDone,
-                  isCurrent && styles.stepDotCurrent,
-                ]}>
-                  {isDone
-                    ? <Ionicons name="checkmark" size={12} color={Colors.white} />
-                    : <Ionicons name={step.icon as any} size={12} color={isCurrent ? Colors.white : Colors.gray4} />}
+        <View style={styles.premiumProgressSection}>
+          <View style={styles.stepsRowPremium}>
+            <View style={styles.progressTrackLinePremium} />
+            <Animated.View
+              style={[
+                styles.progressActiveLinePremium,
+                { width: `${((currentStep - 1) / 4) * 100}%` as any },
+              ]}
+            />
+            {STEPS.map((step) => {
+              const isDone = currentStep > step.id;
+              const isCurrent = currentStep === step.id;
+              return (
+                <View key={step.id} style={styles.stepNodeContainer}>
+                  <TouchableOpacity
+                    style={[
+                      styles.stepDotCirclePremium,
+                      isDone && styles.stepDotDonePremium,
+                      isCurrent && styles.stepDotCurrentPremium,
+                    ]}
+                    onPress={() => currentStep > step.id && animateToStep(step.id)}
+                    activeOpacity={0.7}
+                  >
+                    {isDone ? (
+                      <Ionicons name="checkmark" size={14} color={Colors.white} />
+                    ) : (
+                      <Text style={[styles.stepNumberPremium, isCurrent && { color: Colors.white }]}>{step.id}</Text>
+                    )}
+                  </TouchableOpacity>
+                  <Text style={[styles.stepLabelPremium, isCurrent && styles.stepLabelCurrentPremium, isDone && styles.stepLabelDonePremium]}>
+                    {step.label}
+                  </Text>
                 </View>
-                <Text style={[styles.stepDotLabel, isCurrent && styles.stepDotLabelActive]}>
-                  {step.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+              );
+            })}
+          </View>
         </View>
-      </View>
+      </LinearGradient>
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
 
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -908,7 +1196,7 @@ export default function PostJobScreen() {
       </ScrollView>
 
       {/* Bottom CTA */}
-      <View style={styles.bottomCTA}>
+      <View style={[styles.bottomCTA, { paddingBottom: insets.bottom > 0 ? insets.bottom + 8 : 16 }]}>
         <View style={styles.ctaRow}>
           {/* Previous button — always visible */}
           <TouchableOpacity
@@ -924,39 +1212,45 @@ export default function PostJobScreen() {
 
           {/* Primary action */}
           {currentStep === 5 ? (
-            <TouchableOpacity
-              style={[styles.ctaBtn, styles.ctaBtnPrimary, isPosting && { opacity: 0.7 }]}
-              onPress={handlePost}
-              disabled={isPosting}
-              activeOpacity={0.88}
-            >
-              {isPosting ? (
-                <>
-                  <Ionicons name="hourglass-outline" size={18} color={Colors.white} />
-                  <Text style={styles.ctaBtnText}>Posting...</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="rocket-outline" size={18} color={Colors.white} />
-                  <Text style={styles.ctaBtnText}>Post Job</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <Animated.View style={{ flex: 1, transform: [{ translateX: shakeAnim }] }}>
+              <TouchableOpacity
+                style={[styles.ctaBtn, (!acceptTerms || isPosting) && { opacity: 0.5 }]}
+                onPress={handlePost}
+                disabled={!acceptTerms || isPosting}
+                activeOpacity={0.88}
+              >
+                {isPosting ? (
+                  <>
+                    <Ionicons name="hourglass-outline" size={18} color={Colors.white} />
+                    <Text style={styles.ctaBtnText}>Posting...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="rocket-outline" size={18} color={Colors.white} />
+                    <Text style={styles.ctaBtnText}>Post Job</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
           ) : (
-            <TouchableOpacity
-              style={[styles.ctaBtn, styles.ctaBtnPrimary]}
-              onPress={handleNext}
-              activeOpacity={0.88}
-            >
-              <Text style={styles.ctaBtnText}>Continue</Text>
-              <Ionicons name="arrow-forward" size={18} color={Colors.white} />
-            </TouchableOpacity>
+            <Animated.View style={{ flex: 1, transform: [{ translateX: shakeAnim }] }}>
+              <TouchableOpacity
+                style={[styles.ctaBtn, styles.ctaBtnPrimary, !isStepValid() && { opacity: 0.6 }]}
+                onPress={handleNext}
+                activeOpacity={0.88}
+              >
+                <Text style={styles.ctaBtnText}>Continue</Text>
+                <Ionicons name="arrow-forward" size={18} color={Colors.white} />
+              </TouchableOpacity>
+            </Animated.View>
           )}
         </View>
         <Text style={styles.stepCounter}>Step {currentStep} of 5</Text>
       </View>
 
-      {/* iOS Date/Time Picker Modal */}
+      </KeyboardAvoidingView>
+
+      
       {showPicker && Platform.OS === 'ios' && (
         <Modal transparent animationType="slide" visible={showPicker}>
           <View style={styles.pickerModal}>
@@ -991,13 +1285,228 @@ export default function PostJobScreen() {
           }}
         />
       )}
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  // Premium Header
+  premiumHeader: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    boxShadow: "0px 4px 16px rgba(0,0,0,0.1)",
+    zIndex: 10,
+  },
+  headerTopRowPremium: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  headerBackPremium: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  headerTitlePremium: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: FontSize.xl,
+    color: Colors.white,
+    letterSpacing: -0.5,
+  },
+  headerSubtitlePremium: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.xs,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: 2,
+  },
+  progressPctBox: {
+    backgroundColor: Colors.saffron,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  progressPctText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 13,
+    color: Colors.white,
+  },
+  premiumProgressSection: {
+    marginTop: 8,
+  },
+  stepsRowPremium: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    position: 'relative',
+    paddingHorizontal: 10,
+  },
+  progressTrackLinePremium: {
+    position: 'absolute',
+    top: 14,
+    left: 24,
+    right: 24,
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 1.5,
+  },
+  progressActiveLinePremium: {
+    position: 'absolute',
+    top: 14,
+    left: 24,
+    height: 3,
+    backgroundColor: Colors.saffron,
+    borderRadius: 1.5,
+    zIndex: 1,
+  },
+  stepNodeContainer: {
+    alignItems: 'center',
+    width: 60,
+    zIndex: 2,
+  },
+  stepDotCirclePremium: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: Colors.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    marginBottom: 6,
+  },
+  stepDotDonePremium: {
+    backgroundColor: Colors.saffron,
+    borderColor: Colors.saffron,
+  },
+  stepDotCurrentPremium: {
+    backgroundColor: Colors.saffron,
+    borderColor: Colors.white,
+    boxShadow: "0px 0px 8px rgba(255, 107, 0, 0.5)",
+  },
+  stepNumberPremium: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  stepLabelPremium: {
+    fontFamily: FontFamily.body,
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.5)',
+  },
+  stepLabelCurrentPremium: {
+    fontFamily: FontFamily.bodySemiBold,
+    color: Colors.white,
+  },
+  stepLabelDonePremium: {
+    fontFamily: FontFamily.bodyMedium,
+    color: Colors.saffron,
+  },
+
+  // Step 1 UI
+  suggestionScroll: {
+    paddingBottom: 16,
+    gap: 8,
+  },
+  suggestionChip: {
+    backgroundColor: Colors.saffronLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.saffron,
+    marginRight: 8,
+  },
+  suggestionChipText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.saffronDark,
+  },
+  sectionLabelPremium: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.md,
+    color: Colors.gray4,
+    marginBottom: 12,
+  },
+  categoryGridPremium: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6,
+  },
+  categoryCardPremium: {
+    width: '30%',
+    margin: '1.5%',
+    backgroundColor: Colors.white,
+    borderRadius: Radius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.gray2,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  categoryCardActivePremium: {
+    borderColor: Colors.saffron,
+    backgroundColor: '#FFFAF5',
+  },
+  categoryIconWrapPremium: {
+    position: 'relative',
+    marginBottom: 8,
+  },
+  categoryIconPremium: {
+    fontSize: 32,
+  },
+  categoryCheckBadge: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    backgroundColor: Colors.saffron,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: Colors.white,
+  },
+  categoryLabelPremium: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 11,
+    color: Colors.ink2,
+    textAlign: 'center',
+  },
+  categoryLabelActivePremium: {
+    fontFamily: FontFamily.headingBold,
+    color: Colors.saffron,
+  },
+  charCountPremium: {
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.xs,
+    color: Colors.gray4,
+    textAlign: 'right',
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+  },
+  stickyBottomBar: {
+    backgroundColor: Colors.white,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 32,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray2,
+    boxShadow: "0px -4px 16px rgba(0,0,0,0.05)",
+  },
+
   screen: { flex: 1, backgroundColor: Colors.background },
   scroll: { flex: 1 },
   scrollContent: { paddingVertical: 24, paddingHorizontal: 20, paddingBottom: 40 },
@@ -1034,44 +1543,52 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.gray2,
     ...Shadow.xs,
   },
-  progressBarBg: {
+  progressTrackLine: {
+    position: 'absolute',
+    top: 14,
+    left: '10%',
+    right: '10%',
     height: 3,
     backgroundColor: Colors.gray2,
-    borderRadius: Radius.round,
-    marginBottom: 12,
+    zIndex: 1,
   },
-  progressBarFill: {
-    height: '100%',
+  progressActiveLine: {
+    position: 'absolute',
+    top: 14,
+    left: '10%',
+    height: 3,
     backgroundColor: Colors.saffron,
-    borderRadius: Radius.round,
+    zIndex: 2,
   },
   stepsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    position: 'relative',
+    width: '100%',
   },
-  stepDot: {
+  stepDotContainer: {
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
+    zIndex: 3,
   },
   stepDotCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: Colors.gray2,
     alignItems: 'center',
     justifyContent: 'center',
+    boxShadow: "0px 2px 4px rgba(0,0,0,0.05)",
   },
-  stepDotDone: { backgroundColor: Colors.green },
-  stepDotCurrent: { backgroundColor: Colors.saffron },
+  stepDotDone: { backgroundColor: Colors.saffron },
+  stepDotCurrent: { backgroundColor: Colors.saffron, borderWidth: 2, borderColor: '#FFE4D6' },
   stepDotLabel: {
     fontFamily: FontFamily.bodyMedium,
-    fontSize: 9,
+    fontSize: 10,
     color: Colors.gray4,
   },
-  stepDotLabelActive: {
-    color: Colors.saffron,
-    fontFamily: FontFamily.bodySemiBold,
-  },
+  stepDotLabelActive: { color: Colors.ink, fontFamily: FontFamily.headingBold },
+  stepDotLabelDone: { color: Colors.saffron, fontFamily: FontFamily.bodySemiBold },
 
   // Step content
   stepContent: { gap: 0 },
@@ -1311,7 +1828,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.gray2,
     marginBottom: 16,
-    gap: 12,
+    
     ...Shadow.sm,
   },
   summaryHeader: {
@@ -1378,7 +1895,7 @@ const styles = StyleSheet.create({
   termsRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    
     padding: 14,
     backgroundColor: Colors.white,
     borderRadius: Radius.md,
@@ -1435,7 +1952,7 @@ const styles = StyleSheet.create({
   ctaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    
     width: '100%',
   },
   prevBtn: {

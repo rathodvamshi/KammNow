@@ -4,10 +4,15 @@ import {
   TextInput,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ViewStyle,
   TextInputProps,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolateColor,
+} from 'react-native-reanimated';
 import { Colors, Radius, FontFamily, FontSize, Spacing } from '../../theme';
 
 interface InputProps extends TextInputProps {
@@ -31,10 +36,31 @@ export const Input: React.FC<InputProps> = ({
 }) => {
   const hasError = !!error;
 
+  const isFocused = useSharedValue(0);
+
+  const handleFocus = (e: any) => {
+    isFocused.value = withTiming(1, { duration: 250 });
+    if (rest.onFocus) rest.onFocus(e);
+  };
+
+  const handleBlur = (e: any) => {
+    isFocused.value = withTiming(0, { duration: 250 });
+    if (rest.onBlur) rest.onBlur(e);
+  };
+
+  const animatedBorderStyle = useAnimatedStyle(() => {
+    const borderColor = interpolateColor(
+      isFocused.value,
+      [0, 1],
+      [hasError ? Colors.red : Colors.gray2, hasError ? Colors.red : Colors.saffron]
+    );
+    return { borderColor };
+  });
+
   return (
     <View style={[styles.container, containerStyle]}>
       {label && <Text style={styles.label}>{label}</Text>}
-      <View style={[styles.inputRow, hasError && styles.errorBorder]}>
+      <Animated.View style={[styles.inputRow, animatedBorderStyle]}>
         {prefix && (
           <View style={styles.prefix}>
             <Text style={styles.prefixText}>{prefix}</Text>
@@ -43,10 +69,12 @@ export const Input: React.FC<InputProps> = ({
         <TextInput
           style={[styles.input, prefix && { borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }, style]}
           placeholderTextColor={Colors.gray3}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
           {...rest}
         />
         {suffix && <View style={styles.suffix}>{suffix}</View>}
-      </View>
+      </Animated.View>
       {error ? (
         <Text style={styles.error}>{error}</Text>
       ) : hint ? (

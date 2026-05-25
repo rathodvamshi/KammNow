@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as Sentry from '@sentry/react-native';
 import { View, StyleSheet, Platform } from 'react-native';
 import { router } from 'expo-router';
 import * as ExpoLocation from 'expo-location';
@@ -6,6 +7,8 @@ import { LocationPromptBottomSheet } from '../../src/components/organisms/Locati
 import { useLocationStore } from '../../src/store/locationStore';
 import { reverseGeocode } from '../../src/utils/geocoding';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useAuthStore } from '../../src/store/authStore';
+import { userService } from '../../src/services/userService';
 
 export default function LocationPermissionScreen() {
   const [promptSheetMode, setPromptSheetMode] = useState<'permission_needed' | 'gps_off'>('permission_needed');
@@ -35,9 +38,26 @@ export default function LocationPermissionScreen() {
           geo.formattedLine2 || geo.area || geo.city || 'Current Location'
         );
         useLocationStore.getState().setPermission(true);
+
+        // SYNC ONBOARDING PROFILE TO BACKEND IF NEEDED
+        const user = useAuthStore.getState().user;
+        if (user && !user.is_verified) {
+          try {
+            await userService.updateProfile(user.id, {
+              name: user.name || '',
+              age: user.age || 0,
+              role: user.role,
+              skills: user.skills,
+            });
+            useAuthStore.getState().updateUser({ is_verified: true });
+          } catch (e) {
+            console.error('Failed to sync profile', e);
+          }
+        }
+
         router.replace('/(tabs)');
       } catch (err) {
-        console.warn('Failed to get location', err);
+        Sentry.captureMessage(`${'Failed to get location'} ${err}`);
       }
     }
   };
@@ -53,24 +73,12 @@ export default function LocationPermissionScreen() {
     <LinearGradient
       colors={['#0A0F1E', '#0F172A', '#1A1035']}
       style={styles.container}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
     >
       <LocationPromptBottomSheet
         mode={promptSheetMode}
         visible={isVisible}
         onClose={handleClose}
-        onSelectOnMap={() => {
-          router.push('/location/map-picker');
-        }}
-        onSearchManually={() => {
-          router.push('/location/saved-addresses');
-        }}
-        onContinueSaved={() => {
-          router.replace('/(tabs)');
-        }}
         onEnableLocation={handleEnableLocation}
-        hasSavedAddresses={false}
       />
     </LinearGradient>
   );

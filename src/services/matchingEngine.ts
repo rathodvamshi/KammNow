@@ -1,5 +1,9 @@
 import { Job, User } from '../types';
+import * as Sentry from '@sentry/react-native';
+import { InteractionManager } from 'react-native';
 import { supabase } from './supabase';
+import { firebaseAuth } from './firebaseAuth';
+import { apiFetch } from '../utils/apiClient';
 import { haversineDistance } from '../utils/helpers';
 
 export interface MatchingParams {
@@ -14,148 +18,224 @@ export interface MatchingParams {
     sort_by?: 'pay_high_to_low' | 'distance' | 'date_posted';
     min_pay?: number;
   };
-  maxDistance?: number;
+  maxDistance?: number; // km
   searchTerm?: string;
 }
 
+// ── FeedScore components (NearWork spec) ────────────────────────────────────
+
+/**
+ * DistanceScore = 1 - (distance_km / 10)
+ * 0km away → 1.0, 9km away → 0.1, ≥10km → 0 (clamped)
+ */
+function distanceScore(distance_km: number): number {
+  return Math.max(0, Math.min(1, 1 - distance_km / 10));
+}
+
+/**
+ * RecencyScore = e^(-age_hours / 12)
+ * 1 hr ago → ~0.92, 12 hrs ago → ~0.37, 24 hrs ago → ~0.14
+ */
+function recencyScore(createdAt: string): number {
+  const ageHours = (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60);
+  return Math.exp(-ageHours / 12);
+}
+
+/**
+ * SkillMatchScore = matched_skills / required_skills
+ * Returns 0.5 when the job has no required skills (neutral, not penalised).
+ */
+function skillMatchScore(userSkills: string[], requiredSkills: string[]): number {
+  if (!requiredSkills || requiredSkills.length === 0) return 0.5;
+  const userSet = new Set(userSkills.map((s) => s.toLowerCase()));
+  const matched = requiredSkills.filter((s) => userSet.has(s.toLowerCase())).length;
+  return matched / requiredSkills.length;
+}
+
+/**
+ * Full FeedScore formula (NearWork spec):
+ *   FeedScore = 0.40 × DistanceScore
+ *             + 0.25 × RecencyScore
+ *             + 0.20 × ProviderTrustScore (normalised 0–1)
+ *             + 0.15 × SkillMatchScore
+ */
+function computeFeedScore(
+  distance_km: number,
+  createdAt: string,
+  providerTrustScore: number, // 0–100
+  userSkills: string[],
+  requiredSkills: string[],
+): number {
+  const dScore = distanceScore(distance_km);
+  const rScore = recencyScore(createdAt);
+  const tScore = Math.max(0, Math.min(1, providerTrustScore / 100));
+  const sScore = skillMatchScore(userSkills, requiredSkills);
+
+  return 0.40 * dScore + 0.25 * rScore + 0.20 * tScore + 0.15 * sScore;
+}
+
+// ── Main matching engine ─────────────────────────────────────────────────────
+
 export const matchingEngine = {
-  getRecommendations: async (params: MatchingParams): Promise<(Job & { matchScore: number, distance_km: number })[]> => {
+  getRecommendations: async (
+    params: MatchingParams,
+  ): Promise<(Job & { matchScore: number; distance_km: number })[]> => {
     const { user, location, category, filters, maxDistance = 50, searchTerm } = params;
 
-    // Fetch jobs from Supabase instead of MOCK_JOBS
-    // In a true production app with millions of jobs, this entire logic should be an RPC function in Postgres using PostGIS and pg_trgm.
-    // For now, we fetch a limited batch of active jobs and rank them in JS.
-    let query = supabase
-      .from('jobs')
-      .select(`
-        *,
-        provider:users(*),
-        location:user_location(*)
-      `)
-      .eq('status', 'active')
-      .eq('is_deleted', false)
-      .limit(100);
+    let rawJobs: any[] = [];
 
-    if (category && category !== 'all' && category !== 'urgent') {
-       // Wait, categories are UUIDs now, but if category is a string name, we might need to join.
-       // Assuming category is still passed as string for now, we'll filter in JS if needed.
-    }
-
-    const { data: rawJobs, error } = await query;
-    
-    if (error) {
-      console.error('Error fetching jobs for matching:', error);
-      return [];
-    }
-
-    // Map DB schema to frontend expected format
-    const jobs = (rawJobs || []).map((dbJob: any) => ({
-      id: dbJob.id,
-      title: dbJob.title,
-      description: dbJob.description,
-      poster_id: dbJob.provider_id,
-      poster_name: dbJob.provider?.name || 'Unknown',
-      poster_avatar: dbJob.provider?.profile_image || 'https://i.pravatar.cc/150',
-      category: dbJob.category_id || 'general', // We need to handle categories properly later
-      pay_amount: dbJob.salary || 0,
-      pay_type: dbJob.salary_type || 'fixed',
-      location_name: dbJob.location?.address || dbJob.location?.city || 'Unknown Location',
-      location_lat: dbJob.location?.latitude || 0,
-      location_lng: dbJob.location?.longitude || 0,
-      status: dbJob.status,
-      created_at: dbJob.created_at,
-      employer_trust_score: dbJob.provider?.trust_score || 80,
-      employer_reports: dbJob.provider?.reports || 0,
-      is_urgent: false,
-    }));
-
-    const filteredJobs = jobs.filter((job: any) => {
-      if (searchTerm && searchTerm.trim().length > 0) {
-        const searchVector = (job.title + ' ' + job.description).toLowerCase();
-        const terms = searchTerm.toLowerCase().split(' ').filter(t => t.trim().length > 0);
-        const matchesQuery = terms.every(term => searchVector.includes(term));
-        if (!matchesQuery) return false;
-      }
-
-      if ((job.employer_trust_score ?? 100) < 30) return false;
-      if ((job.employer_reports ?? 0) >= 3) return false;
-
-      if (category && category !== 'all' && category !== 'urgent') {
-        // Basic category text match since we haven't mapped UUIDs perfectly yet
-        // In reality, frontend passes category id.
-      }
-      if (category === 'urgent' && !job.is_urgent) return false;
-
-      if (location?.city) {
-        if (!job.location_name.toLowerCase().includes(location.city.toLowerCase())) return false;
-      }
-
-      if (filters?.min_pay && job.pay_amount < filters.min_pay) return false;
-
-      return true;
-    });
-
-    let processedJobs = filteredJobs.map((job: any) => {
-      let score = 0;
-      let distance = 999;
-      
-      if (location && job.location_lat && job.location_lng) {
-        distance = haversineDistance(location.latitude, location.longitude, job.location_lat, job.location_lng);
-      }
-
-      const userSkills = user.skills?.map(s => s.toLowerCase()) || [];
-      const jobCategory = (job.category || '').toLowerCase();
-      const jobTitle = job.title.toLowerCase();
-      
-      const hasSkillMatch = userSkills.some(skill => 
-        jobCategory.includes(skill) || skill.includes(jobCategory) || jobTitle.includes(skill)
-      );
-      
-      if (hasSkillMatch) score += 40;
-
-      if (distance <= 5) score += 30;
-      else if (distance <= 15) score += 15;
-
-      if (user.expected_salary && user.preferred_pay_type === job.pay_type) {
-        if (job.pay_amount >= user.expected_salary) score += 20;
-        else if (job.pay_amount >= (user.expected_salary * 0.8)) score += 10;
-      } else if (!user.expected_salary) {
-        score += 10;
-      }
-
-      if (user.preferred_pay_type === job.pay_type) score += 10;
-      
-      const trustScore = job.employer_trust_score || 0;
-
-      let ftsRankScore = 0;
-      if (searchTerm && searchTerm.trim().length > 0) {
-        const terms = searchTerm.toLowerCase().split(' ').filter(t => t.trim().length > 0);
-        terms.forEach(term => {
-          if (job.title.toLowerCase().includes(term)) ftsRankScore += 50;
-          else if (job.description.toLowerCase().includes(term)) ftsRankScore += 20;
+    if (location?.latitude && location?.longitude) {
+      // Use the new Node backend endpoint to take advantage of Redis caching
+      try {
+        const token = await firebaseAuth.getIdToken();
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+        
+        const response = await apiFetch(`${apiUrl}/api/jobs/feed?lat=${location.latitude}&lon=${location.longitude}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
         });
+        
+        const data = await response.json();
+        if (data.success) {
+          rawJobs = data.jobs;
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (err: any) {
+        Sentry.captureException(new Error('Feed fetch error: ' + err.message));
       }
-      
-      const finalCompositeScore = (score * 0.4) + (trustScore * 0.6) + ftsRankScore;
+    } else {
+      // Fallback when no GPS fix: fetch recent active jobs, rank without distance
+      try {
+        const token = await firebaseAuth.getIdToken();
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+        
+        const response = await apiFetch(`${apiUrl}/api/jobs/feed`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          rawJobs = data.jobs;
+        } else {
+          throw new Error(data.error);
+        }
+      } catch (err: any) {
+        Sentry.captureException(new Error('Fallback feed fetch error: ' + err.message));
+      }
+    }
+
+    // ── Map DB schema → frontend Job type ────────────────────────────────────
+    // The RPC returns FLAT columns: location_lat, location_lng (not nested objects).
+    // distance_km is already computed in SQL (ST_Distance / 1000.0).
+    const jobs = (rawJobs || []).map((dbJob: any) => {
+      const hasLocation = dbJob.location_lat != null && dbJob.location_lng != null;
+      const lat = dbJob.location_lat ?? 0;
+      const lng = dbJob.location_lng ?? 0;
+
+      // If distance_km comes from the backend, use it; otherwise compute client-side
+      const distKm: number | null =
+        dbJob.distance_km != null
+          ? Number(dbJob.distance_km)
+          : (hasLocation && location)
+          ? haversineDistance(location.latitude, location.longitude, lat, lng)
+          : null;
 
       return {
-        ...job,
-        distance_km: distance,
-        matchScore: finalCompositeScore,
-      };
+        id: dbJob.id,
+        title: dbJob.title,
+        description: dbJob.description,
+        poster_id: dbJob.provider_id,
+        poster_name: dbJob.provider?.name ?? 'Unknown',
+        poster_avatar: dbJob.provider?.profile_image ?? null,
+        category: dbJob.category_id ?? 'other',
+        pay_amount: dbJob.salary ?? 0,
+        pay_type: dbJob.salary_type ?? 'day',
+        location_name: dbJob.location_name ?? dbJob.full_address ?? 'Location N/A',
+        location_lat: lat,
+        location_lng: lng,
+        status: dbJob.status,
+        created_at: dbJob.created_at,
+        is_urgent: dbJob.is_urgent ?? false,
+        required_skills: dbJob.required_skills ?? [],
+        employer_trust_score: dbJob.provider?.trust_score ?? 50,
+        employer_reports: dbJob.provider?.reports ?? 0,
+        employer_verified: dbJob.provider?.is_verified ?? false,
+        distance_km: distKm,
+      } as Job & { distance_km: number };
     });
 
-    if (location) {
-        processedJobs = processedJobs.filter(job => job.distance_km <= maxDistance);
-    }
+    return new Promise((resolve) => {
+      InteractionManager.runAfterInteractions(() => {
+        // ── Step 1: Filter ─────────────────────────────────────────────────
+        let filtered = jobs.filter((job: any) => {
+          // Trust gate: hard remove providers with very low trust or flagged accounts
+          if ((job.employer_trust_score ?? 100) < 30) return false;
+          if ((job.employer_reports ?? 0) >= 3) return false;
 
-    processedJobs.sort((a, b) => {
-      if (filters?.sort_by === 'pay_high_to_low') return b.pay_amount - a.pay_amount;
-      if (filters?.sort_by === 'distance') return a.distance_km - b.distance_km;
-      if (filters?.sort_by === 'date_posted') return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-      return b.matchScore - a.matchScore;
+          // Full-text search (client-side, before Elasticsearch is integrated)
+          if (searchTerm && searchTerm.trim().length > 0) {
+            const haystack = `${job.title} ${job.description}`.toLowerCase();
+            const terms = searchTerm
+              .toLowerCase()
+              .split(/\s+/)
+              .filter((t) => t.length > 0);
+            if (!terms.every((t) => haystack.includes(t))) return false;
+          }
+
+          // Category filter
+          if (category && category !== 'all') {
+            if (category === 'urgent' && !job.is_urgent) return false;
+            if (category !== 'urgent' && job.category !== category) return false;
+          }
+
+          // Min pay filter
+          if (filters?.min_pay && job.pay_amount < filters.min_pay) return false;
+
+          // Distance hard cap (PostGIS already filters, this is a safety net for fallback path)
+          if (location && job.distance_km > maxDistance) return false;
+
+          return true;
+        });
+
+        // ── Step 2: Rank with FeedScore or override sort ───────────────────
+        const userSkills = user?.skills?.map((s) => s.toLowerCase()) ?? [];
+
+        filtered = filtered.map((job: any) => {
+          const feedScore = computeFeedScore(
+            job.distance_km,
+            job.created_at,
+            job.employer_trust_score ?? 50,
+            userSkills,
+            job.required_skills ?? [],
+          );
+
+          return { ...job, matchScore: feedScore };
+        });
+
+        // Sort
+        if (filters?.sort_by === 'pay_high_to_low') {
+          filtered.sort((a: any, b: any) => b.pay_amount - a.pay_amount);
+        } else if (filters?.sort_by === 'distance') {
+          filtered.sort((a: any, b: any) => a.distance_km - b.distance_km);
+        } else if (filters?.sort_by === 'date_posted') {
+          filtered.sort(
+            (a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          );
+        } else {
+          // Default: FeedScore descending (best match first)
+          filtered.sort((a: any, b: any) => b.matchScore - a.matchScore);
+        }
+
+        resolve(filtered.slice(0, 30) as any);
+      });
     });
-
-    return processedJobs.slice(0, 20);
   },
 };

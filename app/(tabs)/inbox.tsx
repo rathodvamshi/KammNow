@@ -1,11 +1,11 @@
+import { FlashList } from '@shopify/flash-list';
 import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
-  SafeAreaView,
+  
 } from 'react-native';
 import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../src/theme';
 import { TopBar } from '../../src/components/organisms/TopBar';
@@ -60,9 +60,9 @@ export default function InboxScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
+      
         <TopBar title="📬 Inbox" showBack={false} showPostJob={false} />
-      </SafeAreaView>
+      
 
       {/* Tabs */}
       <View style={styles.tabsRow}>
@@ -95,7 +95,7 @@ export default function InboxScreen() {
         </View>
       )}
 
-      <FlatList
+      <FlashList estimatedItemSize={100}
         data={currentData}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
@@ -105,8 +105,8 @@ export default function InboxScreen() {
             onAccept={handleAccept}
             onReject={handleReject}
             onWithdraw={handleWithdraw}
-            onViewProfile={(uid) => router.push(`/profile/${uid}` as any)}
-            onRate={(app) => router.push(`/rating/${app.id}` as any)}
+            onViewProfile={(uid) => router.push({ pathname: '/profile/[id]', params: { id: uid } })}
+            onRate={(app) => router.push({ pathname: '/rating/[applicationId]', params: { applicationId: app.id } })}
           />
         )}
         ListEmptyComponent={

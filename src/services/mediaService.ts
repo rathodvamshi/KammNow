@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import * as Sentry from '@sentry/react-native';
 import { Platform } from 'react-native';
 
 const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`;
@@ -17,7 +18,9 @@ class MediaService {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      quality: 0.8, // Basic compression
+      quality: 0.5, // Aggressive compression
+      aspect: [1, 1] as [number, number],
+      base64: false,
     });
 
     if (!result.canceled && result.assets.length > 0) {
@@ -31,7 +34,7 @@ class MediaService {
    */
   async uploadImage(imageUri: string): Promise<string> {
     if (!process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME) {
-      console.warn('[MediaService] Missing Cloudinary Cloud Name. Returning local URI for development.');
+      Sentry.captureMessage(String('[MediaService] Missing Cloudinary Cloud Name. Returning local URI for development.'));
       return imageUri;
     }
 
@@ -71,7 +74,7 @@ class MediaService {
       const optimizedUrl = result.secure_url.replace('/upload/', '/upload/q_auto,f_auto/');
       return optimizedUrl;
     } catch (error: any) {
-      console.error('[MediaService] Cloudinary Upload Error:', error);
+      Sentry.captureException(new Error(`${'[MediaService] Cloudinary Upload Error:'} ${error}`));
       throw new Error('Image upload failed. Please try again.');
     }
   }

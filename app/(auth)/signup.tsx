@@ -212,7 +212,7 @@ export default function SignUpDetailsScreen() {
       <BreathingBlob color="rgba(255,107,0,0.15)" size={280} top={-50} right={-100} />
       <BreathingBlob color="rgba(59,130,246,0.1)" size={220} bottom={100} left={-50} delay={1500} />
 
-      <SafeAreaView style={styles.flex}>
+      <View style={styles.flex}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} bounces={false}>
 
           {step === 1 ? (
@@ -359,7 +359,7 @@ export default function SignUpDetailsScreen() {
           )}
 
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
   );
 }

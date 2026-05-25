@@ -1,3 +1,5 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FlashList } from '@shopify/flash-list';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -5,14 +7,15 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  FlatList,
-  SafeAreaView,
+  
   Platform,
   ScrollView,
   Animated,
   SectionList,
 } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '../src/utils/navigation';
+
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Spacing, Radius, Shadow } from '../src/theme';
 import { useSearchStore } from '../src/store/searchStore';
@@ -66,6 +69,7 @@ const AnimatedPlaceholder = ({ active }: { active: boolean }) => {
 };
 
 export default function SearchScreen() {
+  const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [results, setResults] = useState<Job[]>([]);
@@ -91,7 +95,7 @@ export default function SearchScreen() {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query);
-    }, 300);
+    }, 500);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -181,11 +185,11 @@ export default function SearchScreen() {
             job={item}
             onPress={() => {
               handleSubmit(item.title);
-              router.push(`/job/${item.id}` as any);
+              router.push({ pathname: '/job/[id]', params: { id: item.id } });
             }}
             onApply={() => {
               handleSubmit(item.title);
-              router.push(`/job/${item.id}` as any);
+              router.push({ pathname: '/job/[id]', params: { id: item.id } });
             }}
           />
         </View>
@@ -207,11 +211,11 @@ export default function SearchScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ backgroundColor: Colors.white }} />
+      
       
       {/* Search Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => safeGoBack()}>
           <Ionicons name="arrow-back" size={26} color={Colors.ink} />
         </TouchableOpacity>
         
@@ -241,7 +245,7 @@ export default function SearchScreen() {
         {query.trim().length === 0 ? (
           renderIdleState()
         ) : (
-          <FlatList
+          <FlashList estimatedItemSize={100}
             data={results}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.resultsList}
@@ -250,11 +254,11 @@ export default function SearchScreen() {
                 job={item}
                 onPress={() => {
                   handleSubmit(item.title);
-                  router.push(`/job/${item.id}` as any);
+                  router.push({ pathname: '/job/[id]', params: { id: item.id } });
                 }}
                 onApply={() => {
                   handleSubmit(item.title);
-                  router.push(`/job/${item.id}` as any);
+                  router.push({ pathname: '/job/[id]', params: { id: item.id } });
                 }}
               />
             )}

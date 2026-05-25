@@ -1,4 +1,6 @@
+import { safeGoBack } from '../../src/utils/navigation';
 import React, { useEffect, useState, useRef } from 'react';
+import { supabase } from '../../src/services/supabase';
 import {
   View,
   Text,
@@ -25,6 +27,8 @@ export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>(); // Room ID
   const [inputText, setInputText] = useState('');
   const [isOptionsVisible, setIsOptionsVisible] = useState(false);
+  const [showRatingLock, setShowRatingLock] = useState(false);
+  const [applicationId, setApplicationId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const {
@@ -39,15 +43,46 @@ export default function ChatScreen() {
 
   const roomMessages = messages[id] || [];
   const roomIsTyping = isTyping[id];
-  // Mocking the other user ID as 'user-003' for demo
-  const otherUserId = 'user-003';
-  const isOtherUserOnline = onlineUsers[otherUserId] ?? true;
+  const activeRoom = useChatStore(state => state.rooms.find(r => r.id === id));
+  // Determine who the "other" user is based on my role
+  const otherUser = activeRoom ? (activeRoom.provider_id === user?.id ? (activeRoom as any).seeker : (activeRoom as any).provider) : null;
+  const otherUserId = otherUser?.id || 'unknown';
+  const isOtherUserOnline = onlineUsers[otherUserId] ?? false;
 
   useEffect(() => {
     setActiveRoom(id);
     fetchMessages(id);
+    
+    // Check if we need to show the rating lock
+    const checkRatingLock = async () => {
+      if (!activeRoom || !user?.id) return;
+      
+      const app_id = (activeRoom as any).application_id;
+      if (!app_id) return;
+      setApplicationId(app_id);
+
+      const { data: appData } = await supabase
+        .from('job_applications')
+        .select('status, job_id')
+        .eq('id', app_id)
+        .single();
+        
+      if (appData?.status === 'completed') {
+        const { count } = await supabase
+          .from('reviews')
+          .select('id', { count: 'exact', head: true })
+          .eq('from_user_id', user.id)
+          .eq('application_id', app_id);
+          
+        if (count === 0) {
+          setShowRatingLock(true);
+        }
+      }
+    };
+    checkRatingLock();
+
     return () => setActiveRoom(null);
-  }, [id]);
+  }, [id, activeRoom?.id, user?.id]);
 
   const handleSend = () => {
     if (!inputText.trim() || !user?.id) return;
@@ -106,9 +141,9 @@ export default function ChatScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => safeGoBack()}>
           <Ionicons name="chevron-back" size={24} color={Colors.ink} />
         </TouchableOpacity>
         
@@ -118,7 +153,7 @@ export default function ChatScreen() {
             {isOtherUserOnline && <View style={styles.onlineBadge} />}
           </View>
           <View style={styles.headerInfo}>
-            <Text style={styles.headerName}>Provider Name</Text>
+            <Text style={styles.headerName}>{otherUser?.name || 'Loading...'}</Text>
             <Text style={styles.headerStatus}>
               {roomIsTyping ? 'Typing...' : isOtherUserOnline ? 'Online' : 'Offline'}
             </Text>
@@ -194,7 +229,7 @@ export default function ChatScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

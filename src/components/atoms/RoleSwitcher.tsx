@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,36 +6,61 @@ import {
   TouchableOpacity,
   Animated,
 } from 'react-native';
-import { Colors, FontFamily, FontSize, Radius } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../theme';
 import { useUIStore } from '../../store/uiStore';
+import * as Haptics from 'expo-haptics';
+import { Platform } from 'react-native';
 
-export const RoleSwitcher: React.FC = () => {
+interface RoleSwitcherProps {
+  onSwitchRequest?: (role: 'seeker' | 'provider') => void;
+}
+
+export const RoleSwitcher: React.FC<RoleSwitcherProps> = ({ onSwitchRequest }) => {
   const { currentRole, setRole } = useUIStore();
-  const slideAnim = useRef(new Animated.Value(currentRole === 'seeker' ? 0 : 1)).current;
+  // Local state for immediate visual feedback
+  const [localRole, setLocalRole] = useState<'seeker' | 'provider'>(currentRole);
+  
+  const slideAnim = useRef(new Animated.Value(localRole === 'seeker' ? 0 : 1)).current;
+
+  // Sync with global store if changed externally
+  useEffect(() => {
+    if (currentRole !== localRole) {
+      setLocalRole(currentRole);
+    }
+  }, [currentRole]);
 
   useEffect(() => {
     Animated.spring(slideAnim, {
-      toValue: currentRole === 'seeker' ? 0 : 1,
-      useNativeDriver: false, // width/translateX interpolation requires false for layout spacing
+      toValue: localRole === 'seeker' ? 0 : 1,
+      useNativeDriver: false,
       friction: 8,
       tension: 65,
     }).start();
-  }, [currentRole, slideAnim]);
+  }, [localRole, slideAnim]);
 
   const handleSwitch = (role: 'seeker' | 'provider') => {
-    if (role === currentRole) return;
-    setRole(role);
+    if (role === localRole) return;
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    
+    setLocalRole(role);
+    
+    if (onSwitchRequest) {
+      onSwitchRequest(role);
+    } else {
+      setRole(role);
+    }
   };
 
-  // Interpolate translate X position
+  // 176px container width => Each button is 88px. Pill width is 84px.
+  // Left padding is 2px. Pill positions: 2px (left) and 176 - 84 - 2 = 90px (right).
   const leftPosition = slideAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [2, 70], // pill width is ~68px, gap is 2px, container padding is 2px
+    outputRange: [2, 90], 
   });
 
   return (
     <View style={styles.container}>
-      {/* Sliding background pill */}
       <Animated.View style={[styles.pill, { left: leftPosition }]} />
 
       <TouchableOpacity
@@ -43,7 +68,13 @@ export const RoleSwitcher: React.FC = () => {
         onPress={() => handleSwitch('seeker')}
         activeOpacity={0.8}
       >
-        <Text style={[styles.btnText, currentRole === 'seeker' && styles.btnTextActive]}>
+        <Ionicons 
+          name="person" 
+          size={14} 
+          color={localRole === 'seeker' ? Colors.ink : 'rgba(255, 255, 255, 0.6)'} 
+          style={styles.icon}
+        />
+        <Text style={[styles.btnText, localRole === 'seeker' && styles.btnTextActive]}>
           Seeker
         </Text>
       </TouchableOpacity>
@@ -53,7 +84,13 @@ export const RoleSwitcher: React.FC = () => {
         onPress={() => handleSwitch('provider')}
         activeOpacity={0.8}
       >
-        <Text style={[styles.btnText, currentRole === 'provider' && styles.btnTextActive]}>
+        <Ionicons 
+          name="business" 
+          size={14} 
+          color={localRole === 'provider' ? Colors.ink : 'rgba(255, 255, 255, 0.6)'} 
+          style={styles.icon}
+        />
+        <Text style={[styles.btnText, localRole === 'provider' && styles.btnTextActive]}>
           Provider
         </Text>
       </TouchableOpacity>
@@ -65,38 +102,42 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.12)', // Translucent fill for dark UI
-    borderRadius: Radius.round ?? 20,
-    height: 32,
-    width: 142,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)', 
+    borderRadius: 20,
+    height: 36,
+    width: 176,
     padding: 2,
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   pill: {
     position: 'absolute',
     top: 2,
     bottom: 2,
-    width: 68,
-    backgroundColor: Colors.saffron ?? '#FF6B00',
-    borderRadius: Radius.round ?? 18,
-    boxShadow: '0px 2px 8px rgba(255,107,0,0.35)',
+    width: 84,
+    backgroundColor: Colors.white,
+    borderRadius: 18,
+    ...Shadow.sm,
   },
   btn: {
     flex: 1,
     height: '100%',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 2,
   },
+  icon: {
+    marginRight: 4,
+  },
   btnText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.xs ?? 11,
-    color: 'rgba(255, 255, 255, 0.75)', // White text for dark backdrop
+    fontSize: FontSize.xs,
+    color: 'rgba(255, 255, 255, 0.75)', 
   },
   btnTextActive: {
-    color: Colors.white ?? '#FFFFFF',
+    color: Colors.ink,
     fontFamily: FontFamily.headingBold,
   },
 });

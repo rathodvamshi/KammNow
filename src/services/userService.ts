@@ -9,7 +9,9 @@
  * - All functions return typed User objects
  */
 import { supabase } from './supabase';
+import * as Sentry from '@sentry/react-native';
 import { firebaseAuth } from './firebaseAuth';
+import { apiFetch } from '../utils/apiClient';
 import type { User } from '../types';
 
 export interface CreateUserResult {
@@ -35,6 +37,9 @@ export interface ProfileUpdateData {
 }
 
 class UserService {
+
+  
+
   /**
    * Called immediately after successful Firebase OTP verification.
    *
@@ -57,7 +62,7 @@ class UserService {
       .maybeSingle();
 
     if (fetchError) {
-      console.error('[UserService] createOrGetUser fetch error:', fetchError);
+      Sentry.captureException(new Error(`${'[UserService] createOrGetUser fetch error:'} ${fetchError}`));
       throw new Error('Failed to load your profile. Please try again.');
     }
 
@@ -74,18 +79,21 @@ class UserService {
 
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'; // Default fallback
 
-    const response = await fetch(`${apiUrl}/api/users/profile`, {
+    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${jwtToken}`,
       },
       body: JSON.stringify({ phone, role: 'seeker' }),
+    }).catch(error => {
+      console.log('[API] Backend unreachable:', error);
+      throw new Error('Backend not reachable');
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[UserService] backend profile creation error:', errorData);
+      Sentry.captureException(new Error(`${'[UserService] backend profile creation error:'} ${errorData}`));
       throw new Error(errorData.error || 'Failed to create user profile on backend.');
     }
 
@@ -96,6 +104,39 @@ class UserService {
     } else {
       throw new Error('Failed to create user profile on backend. Empty response.');
     }
+  }
+
+  /**
+   * Fetches a full user profile from Supabase by internal UUID.
+   * Joins user_location to get city/state but skips exact lat/long for privacy.
+   */
+  async getUserById(userId: string): Promise<User | null> {
+    const { data, error } = await supabase
+      .from('users')
+      .select(`
+        *,
+        user_location (
+          city,
+          state
+        )
+      `)
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (error) {
+      Sentry.captureException(new Error(`${'[UserService] getUserById error:'} ${error}`));
+      return null;
+    }
+
+    if (!data) return null;
+
+    // Use city/state as location_name if available, hiding exact lat/lng
+    const location = data.user_location?.[0];
+    const location_name = location?.city 
+      ? `${location.city}${location.state ? ', ' + location.state : ''}` 
+      : data.location_name;
+
+    return this.mapRow({ ...data, location_name, location_lat: null, location_lng: null });
   }
 
   /**
@@ -110,7 +151,7 @@ class UserService {
       .maybeSingle();
 
     if (error) {
-      console.error('[UserService] getUserByFirebaseUid error:', error);
+      Sentry.captureException(new Error(`${'[UserService] getUserByFirebaseUid error:'} ${error}`));
       return null;
     }
 
@@ -128,7 +169,7 @@ class UserService {
       .maybeSingle();
 
     if (error) {
-      console.warn('[UserService] checkUserExists error:', error);
+      Sentry.captureMessage(`${'[UserService] checkUserExists error:'} ${error}`);
     }
     return !!data;
   }
@@ -154,7 +195,7 @@ class UserService {
 
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-    const response = await fetch(`${apiUrl}/api/users/profile`, {
+    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -165,11 +206,14 @@ class UserService {
         ...profileData,
         is_profile_complete: true,
       }),
+    }).catch(error => {
+      console.log('[API] Backend unreachable:', error);
+      throw new Error('Backend not reachable');
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error('[UserService] createFullProfile error:', errorData);
+      Sentry.captureException(new Error(`${'[UserService] createFullProfile error:'} ${errorData}`));
       throw new Error(errorData.error || 'Failed to create user profile.');
     }
 
@@ -193,7 +237,7 @@ class UserService {
     const jwtToken = await firebaseAuth.getIdToken();
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-    const response = await fetch(`${apiUrl}/api/users/profile`, {
+    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -203,12 +247,15 @@ class UserService {
         ...data,
         is_profile_complete: true,
       }),
+    }).catch(error => {
+      console.log('[API] Backend unreachable:', error);
+      throw new Error('Backend not reachable');
     });
 
     const result = await response.json();
 
     if (!response.ok || !result.success) {
-      console.error('[UserService] updateProfile error:', result.error);
+      Sentry.captureException(new Error(`${'[UserService] updateProfile error:'} ${result.error}`));
       throw new Error('Failed to save your profile. Please try again.');
     }
 
@@ -226,7 +273,7 @@ class UserService {
       .eq('id', userId);
 
     if (error) {
-      console.warn('[UserService] updatePushToken error:', error.message);
+      Sentry.captureMessage(`${'[UserService] updatePushToken error:'} ${error.message}`);
     }
   }
 
@@ -251,7 +298,7 @@ class UserService {
       .eq('id', userId);
 
     if (error) {
-      console.warn('[UserService] updateLocation error:', error.message);
+      Sentry.captureMessage(`${'[UserService] updateLocation error:'} ${error.message}`);
     }
   }
 

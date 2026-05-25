@@ -15,6 +15,7 @@ interface CategoryTabProps {
   iconName: React.ComponentProps<typeof Ionicons>['name'];
   isActive: boolean;
   onPress: () => void;
+  style?: any;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -25,6 +26,7 @@ export const CategoryTab: React.FC<CategoryTabProps> = ({
   iconName,
   isActive,
   onPress,
+  style,
 }) => {
   const activeAnim = useSharedValue(isActive ? 1 : 0);
   const countScale = useSharedValue(1);
@@ -66,6 +68,26 @@ export const CategoryTab: React.FC<CategoryTabProps> = ({
     };
   });
 
+  const badgeAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      backgroundColor: interpolateColor(
+        activeAnim.value,
+        [0, 1],
+        [Colors.gray2, Colors.white]
+      ),
+    };
+  });
+
+  const badgeTextAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      color: interpolateColor(
+        activeAnim.value,
+        [0, 1],
+        [Colors.ink2, Colors.saffronDark]
+      ),
+    };
+  });
+
   const countAnimatedStyle = useAnimatedStyle(() => {
     return {
       transform: [{ scale: countScale.value }],
@@ -74,44 +96,54 @@ export const CategoryTab: React.FC<CategoryTabProps> = ({
 
   return (
     <AnimatedPressable
-      style={[styles.container, animatedStyle, isActive ? Shadow.sm : null]}
+      style={[styles.container, style, animatedStyle, isActive ? Shadow.sm : null]}
       onPress={onPress}
     >
       <Animated.View style={styles.iconWrapper}>
-        <Ionicons name={iconName} size={16} color={isActive ? Colors.white : Colors.ink2} />
+        <Ionicons name={iconName} size={14} color={isActive ? Colors.white : Colors.ink2} />
       </Animated.View>
-      <Animated.View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Animated.Text style={[styles.text, textAnimatedStyle]}>
-          {label} (
-        </Animated.Text>
-        <Animated.Text style={[styles.text, textAnimatedStyle, countAnimatedStyle]}>
-          {count}
-        </Animated.Text>
-        <Animated.Text style={[styles.text, textAnimatedStyle]}>
-          )
-        </Animated.Text>
-      </Animated.View>
+      <Animated.Text style={[styles.text, textAnimatedStyle]}>
+        {label}
+      </Animated.Text>
+      {count >= 0 && (
+        <Animated.View style={[styles.badge, badgeAnimatedStyle]}>
+          <Animated.Text style={[styles.badgeText, badgeTextAnimatedStyle, countAnimatedStyle]}>
+            {count}
+          </Animated.Text>
+        </Animated.View>
+      )}
     </AnimatedPressable>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    height: 44,
-    minWidth: 120,
+    height: 36,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
     borderRadius: Radius.round,
     borderWidth: 1,
-    marginRight: 10,
   },
   iconWrapper: {
     marginRight: 6,
   },
   text: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
+    fontSize: 13,
+  },
+  badge: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 11,
   },
 });

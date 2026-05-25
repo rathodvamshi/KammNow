@@ -132,12 +132,9 @@ const CategoryItemView: React.FC<{
   const startShrink = stickyHeaderY ? Math.max(0, stickyHeaderY - 80) : 170;
   const endShrink = stickyHeaderY ? Math.max(0, stickyHeaderY) : 250;
 
-  // 1. Smoothly shrink the container width
-  const animatedItemWidth = scrollY ? scrollY.interpolate({
-    inputRange: [0, startShrink, endShrink],
-    outputRange: [ITEM_WIDTH, ITEM_WIDTH, 46],
-    extrapolate: 'clamp',
-  }) : (isCompact ? 46 : ITEM_WIDTH);
+  // Layout width changes cannot be animated with native driver.
+  // Instead, rely on scale, or just render the fixed compact width when freezeLayout is true.
+  const staticItemWidth = isCompact ? 46 : ITEM_WIDTH;
 
   // 2. Smoothly scale down the circle (and icon inside it)
   const compactCircleScale = 36 / CIRCLE_SIZE;
@@ -168,24 +165,18 @@ const CategoryItemView: React.FC<{
     extrapolate: 'clamp',
   }) : (isCompact ? 0.9 : 1);
 
-  const animatedLabelHeight = scrollY ? scrollY.interpolate({
+  const animatedLabelTranslateY = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [20, 20, 10],
+    outputRange: [0, 0, -4],
     extrapolate: 'clamp',
-  }) : (isCompact ? 10 : 20);
+  }) : (isCompact ? -4 : 0);
 
-  const animatedLabelMarginTop = scrollY ? scrollY.interpolate({
+  // Native driver doesn't support width animation. Using scaleX instead.
+  const animatedIndicatorScaleX = scrollY ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [4, 4, 2],
+    outputRange: [1, 1, 0.75],
     extrapolate: 'clamp',
-  }) : (isCompact ? 2 : 4);
-
-  // 5. Smooth active indicator width
-  const animatedIndicatorWidth = scrollY ? scrollY.interpolate({
-    inputRange: [0, startShrink, endShrink],
-    outputRange: [16, 16, 12],
-    extrapolate: 'clamp',
-  }) : (isCompact ? 12 : 16);
+  }) : (isCompact ? 0.75 : 1);
 
   // Multiply scale values safely
   const combinedScale = Animated.multiply(
@@ -209,7 +200,7 @@ const CategoryItemView: React.FC<{
       <Animated.View
         style={[
           styles.itemContainer,
-          { width: animatedItemWidth }
+          { width: staticItemWidth }
         ]}
       >
         <View style={styles.iconSlot}>
@@ -239,9 +230,12 @@ const CategoryItemView: React.FC<{
             isActive ? styles.labelActive : styles.labelInactive,
             {
               opacity: animatedLabelOpacity,
-              height: animatedLabelHeight,
-              marginTop: animatedLabelMarginTop,
-              transform: [{ scale: animatedLabelScale }],
+              height: isCompact ? 10 : 20,
+              marginTop: isCompact ? 2 : 4,
+              transform: [
+                { scale: animatedLabelScale },
+                { translateY: animatedLabelTranslateY }
+              ],
             }
           ]}
           numberOfLines={1}
@@ -251,11 +245,16 @@ const CategoryItemView: React.FC<{
         </Animated.Text>
 
         {/* Active underline indicator */}
-        <Animated.View style={[styles.indicatorWrap, { width: animatedIndicatorWidth }]}>
+        <Animated.View style={[styles.indicatorWrap, { width: isCompact ? 12 : 16 }]}>
           <Animated.View
             style={[
               styles.indicator,
-              { transform: [{ scaleX: indicatorAnim }], opacity: indicatorAnim },
+              { 
+                transform: [
+                  { scaleX: Animated.multiply(indicatorAnim, animatedIndicatorScaleX) }
+                ], 
+                opacity: indicatorAnim 
+              },
             ]}
           />
         </Animated.View>
@@ -324,24 +323,18 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
 
   const useScrollDrivenLayout = scrollY && !freezeLayout;
 
-  const containerPaddingTop = useScrollDrivenLayout ? scrollY.interpolate({
+  const containerTranslateY = useScrollDrivenLayout ? scrollY.interpolate({
     inputRange: [0, startShrink, endShrink],
-    outputRange: [4, 4, 0],
+    outputRange: [0, 0, -4],
     extrapolate: 'clamp',
-  }) : (isCompact ? 0 : 4);
-
-  const listPaddingVertical = useScrollDrivenLayout ? scrollY.interpolate({
-    inputRange: [0, startShrink, endShrink],
-    outputRange: [8, 8, 2],
-    extrapolate: 'clamp',
-  }) : (isCompact ? 2 : 8);
+  }) : (isCompact ? -4 : 0);
 
   return (
     <Animated.View
       style={[
         styles.container,
         (isCompact || freezeLayout) && styles.containerFixedHeight,
-        { paddingTop: containerPaddingTop, overflow: 'visible' },
+        { transform: [{ translateY: containerTranslateY }], overflow: 'visible', paddingTop: isCompact ? 0 : 4 },
       ]}
     >
       <AnimatedFlatList
@@ -357,7 +350,7 @@ export const CategorySection: React.FC<CategorySectionProps> = ({
         alwaysBounceHorizontal
         contentContainerStyle={[
           styles.listContent,
-          { paddingVertical: listPaddingVertical }
+          { paddingVertical: isCompact ? 2 : 8 }
         ]}
         renderItem={({ item }) => (
           <CategoryItemView
@@ -379,8 +372,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent', // inherits parent — zero color mismatch
   },
   containerFixedHeight: {
-    minHeight: CATEGORY_SECTION_HEIGHT,
-    maxHeight: CATEGORY_SECTION_HEIGHT,
+    height: CATEGORY_SECTION_HEIGHT,
   },
   listContent: {
     paddingHorizontal: 14,

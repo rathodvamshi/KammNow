@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useRef } from 'react';
+import React, { forwardRef, useEffect, useRef, useImperativeHandle } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 
 interface InteractiveMapProps {
@@ -10,12 +10,27 @@ interface InteractiveMapProps {
   };
   onRegionChange?: () => void;
   onRegionChangeComplete?: (region: any) => void;
+  mapPadding?: { top: number; right: number; bottom: number; left: number };
+  scrollEnabled?: boolean;
 }
 
 export const InteractiveMap = forwardRef<any, InteractiveMapProps>(
-  ({ region, onRegionChange, onRegionChangeComplete }, ref) => {
+  ({ region, onRegionChange, onRegionChangeComplete, mapPadding, scrollEnabled = true }, ref) => {
     const containerId = 'web-leaflet-map';
     const mapInstance = useRef<any>(null);
+
+    // Expose animateToRegion to parent
+    useImperativeHandle(ref, () => ({
+      animateToRegion: (newRegion: any, duration: number = 600) => {
+        if (mapInstance.current) {
+          mapInstance.current.flyTo(
+            [newRegion.latitude, newRegion.longitude],
+            16,
+            { animate: true, duration: duration / 1000 }
+          );
+        }
+      },
+    }));
 
     useEffect(() => {
       if (Platform.OS !== 'web') return;
@@ -40,18 +55,19 @@ export const InteractiveMap = forwardRef<any, InteractiveMapProps>(
         const map = L.map(containerId, {
           zoomControl: false,
           attributionControl: false,
-        }).setView([region.latitude, region.longitude], 15);
+          dragging: scrollEnabled,
+          scrollWheelZoom: scrollEnabled,
+          touchZoom: scrollEnabled,
+        }).setView([region.latitude, region.longitude], 16);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          maxZoom: 19,
+        // CartoDB Voyager — premium, clean, Google Maps-like tile layer
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          maxZoom: 20,
+          subdomains: 'abcd',
         }).addTo(map);
 
         // Track panning to trigger parent callbacks
         map.on('movestart', () => {
-          if (onRegionChange) onRegionChange();
-        });
-
-        map.on('move', () => {
           if (onRegionChange) onRegionChange();
         });
 
@@ -110,7 +126,10 @@ export const InteractiveMap = forwardRef<any, InteractiveMapProps>(
         const center = mapInstance.current.getCenter();
         const dist = Math.abs(center.lat - region.latitude) + Math.abs(center.lng - region.longitude);
         if (dist > 0.0001) {
-          mapInstance.current.setView([region.latitude, region.longitude], 15);
+          mapInstance.current.flyTo([region.latitude, region.longitude], 16, {
+            animate: true,
+            duration: 0.6,
+          });
         }
       }
     }, [region.latitude, region.longitude]);
@@ -124,4 +143,3 @@ export const InteractiveMap = forwardRef<any, InteractiveMapProps>(
     );
   }
 );
-

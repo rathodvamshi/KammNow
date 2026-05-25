@@ -1,3 +1,4 @@
+import { safeGoBack } from '../../src/utils/navigation';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -108,8 +109,9 @@ export default function JobDetailScreen() {
   const handleApply = async () => {
     if (!user?.id) return;
     setIsApplyingLocally(true);
-    await applyToJob(job, user.id);
+    await applyToJob(job, user.id, description);
     setIsApplyingLocally(false);
+    setInputModalVisible(false);
     router.replace('/(tabs)/my-jobs' as any);
   };
 
@@ -167,9 +169,9 @@ export default function JobDetailScreen() {
 
       {/* Animated Sticky Header (Fades in on scroll) */}
       <Animated.View style={[styles.dynamicStickyHeader, { opacity: headerOpacity }]}>
-        <SafeAreaView>
+        <View>
           <View style={styles.topNav}>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => safeGoBack()}>
               <Ionicons name="chevron-back" size={24} color={Colors.white} />
             </TouchableOpacity>
             
@@ -188,7 +190,7 @@ export default function JobDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
       </Animated.View>
 
       <Animated.ScrollView
@@ -198,10 +200,10 @@ export default function JobDetailScreen() {
         onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], { useNativeDriver: Platform.OS !== 'web' })}
         scrollEventThrottle={16}
       >
-        <SafeAreaView>
+        <View>
           {/* Normal Top Navigation */}
           <View style={styles.topNav}>
-            <TouchableOpacity style={styles.iconBtn} onPress={() => router.back()}>
+            <TouchableOpacity style={styles.iconBtn} onPress={() => safeGoBack()}>
               <Ionicons name="chevron-back" size={24} color={Colors.white} />
             </TouchableOpacity>
             <View style={styles.topNavRight}>
@@ -213,7 +215,7 @@ export default function JobDetailScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
 
         {/* Hero Content */}
         <Animated.View 
@@ -439,8 +441,8 @@ export default function JobDetailScreen() {
             />
             <Text style={styles.charCount}>{description.length} / 300</Text>
 
-            <TouchableOpacity style={styles.popupSaveBtn} onPress={() => setInputModalVisible(false)}>
-              <Text style={styles.popupSaveBtnText}>Save</Text>
+            <TouchableOpacity style={styles.popupSaveBtn} onPress={handleApply}>
+              <Text style={styles.popupSaveBtnText}>Submit Application</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>

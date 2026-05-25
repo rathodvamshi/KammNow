@@ -4,13 +4,17 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  SafeAreaView,
+  
   TextInput,
   KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { safeGoBack } from '../../src/utils/navigation';
+import { supabase } from '../../src/services/supabase';
+import { useAuthStore } from '../../src/store/authStore';
+
 import * as Haptics from 'expo-haptics';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../src/theme';
@@ -39,10 +43,50 @@ export default function RatingScreen() {
   const [reviewText, setReviewText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mock data for demo
-  const targetType: 'worker' | 'employer' = 'worker';
-  const targetName = 'Ramesh Kumar';
-  const jobTitle = 'Delivery Partner Needed';
+  const { applicationId } = useLocalSearchParams<{ applicationId: string }>();
+  const { user } = useAuthStore();
+  const [targetType, setTargetType] = useState<'worker' | 'employer'>('worker');
+  const [targetName, setTargetName] = useState('Loading...');
+  const [jobTitle, setJobTitle] = useState('Loading...');
+  const [targetId, setTargetId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const fetchDetails = async () => {
+      const { data, error } = await supabase
+        .from('job_applications')
+        .select(`
+          *,
+          job:jobs(title, provider_id),
+          seeker:users!seeker_id(name),
+          provider:users!jobs!job_applications_job_id_fkey(name)
+        `)
+        .eq('id', applicationId)
+        .single();
+        
+      if (!error && data) {
+        const d = data as any;
+        setJobTitle(d.job?.title || 'Job');
+        // If current user is the provider, we are rating the worker (seeker)
+        if (user?.id === d.job?.provider_id) {
+          setTargetType('worker');
+          setTargetName(d.seeker?.name || 'Worker');
+          setTargetId(d.applicant_id);
+        } else {
+          // We are rating the employer
+          setTargetType('employer');
+          // In this simple query, we need to fetch provider name separately if it didn't join well
+          const { data: prov } = await supabase.from('users').select('name').eq('id', d.job?.provider_id).single();
+          setTargetName(prov?.name || 'Employer');
+          setTargetId(d.job?.provider_id);
+        }
+        
+        // Stash job ID for our API call
+        (global as any).currentRatingJobId = d.job_id;
+      }
+    };
+    if (applicationId && user?.id) fetchDetails();
+  }, [applicationId, user]);
+
   const tagsList = RATING_TAGS[targetType];
 
   const handleToggleTag = (tag: string) => {
@@ -57,10 +101,95 @@ export default function RatingScreen() {
       Alert.alert('Rating Required', 'Please select a star rating first.');
       return;
     }
+    if (reviewText.length < 20) {
+      Alert.alert('Review Too Short', 'Please write at least 20 characters detailing your experience.');
+      return;
+    }
+    if (!targetId || !user?.id) return;
+    
     setIsSubmitting(true);
-    await new Promise((r) => setTimeout(r, 1000));
-    setIsSubmitting(false);
-    router.back();
+    
+    // Construct full review text including tags
+    const fullReview = selectedTags.length > 0 
+      ? `[Tags: ${selectedTags.join(', ')}] ${reviewText}` 
+      : reviewText;
+      
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+      const response = await fetch(`${apiUrl}/api/ratings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          to_user_id: targetId,
+          job_id: (global as any).currentRatingJobId,
+          application_id: applicationId,
+          rating: stars,
+          review: fullReview
+        })
+      });
+
+      const result = await response.json();
+      setIsSubmitting(false);
+
+      if (!response.ok || !result.success) {
+        Alert.alert('Notice', result.error || 'Failed to submit review');
+        if (result.error?.includes('already rated')) {
+          safeGoBack();
+        }
+      } else {
+        Alert.alert('Success', 'Thank you for your feedback!');
+        safeGoBack();
+      }
+    } catch (err) {
+      setIsSubmitting(false);
+      Alert.alert('Error', 'Network error while submitting rating.');
+    }
+  };
+
+  const handleReport = () => {
+    Alert.alert(
+      'Report User',
+      'What is the reason for reporting this user?',
+      [
+        { text: 'Fraud / Scam', onPress: () => submitReport('fraud') },
+        { text: 'No-Show', onPress: () => submitReport('no-show') },
+        { text: 'Unsafe Behavior', onPress: () => submitReport('unsafe') },
+        { text: 'Harassment', onPress: () => submitReport('harassment') },
+        { text: 'Cancel', style: 'cancel' }
+      ]
+    );
+  };
+
+  const submitReport = async (reason: string) => {
+    try {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session?.session?.access_token;
+      const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+      await fetch(`${apiUrl}/api/reports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          reported_user_id: targetId,
+          job_id: (global as any).currentRatingJobId,
+          application_id: applicationId,
+          reason,
+          details: 'Reported from rating screen.'
+        })
+      });
+      Alert.alert('Reported', 'Our trust & safety team will review this shortly.');
+    } catch (e) {
+      Alert.alert('Error', 'Could not submit report.');
+    }
   };
 
   return (
@@ -68,9 +197,9 @@ export default function RatingScreen() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
+      
         <TopBar title="Rate Experience" showBack showPostJob={false} />
-      </SafeAreaView>
+      
 
       <View style={styles.content}>
         <View style={styles.headerBox}>
@@ -131,10 +260,10 @@ export default function RatingScreen() {
         {/* Review input */}
         {stars > 0 && (
           <Animated.View entering={FadeInDown.delay(300).springify()} style={styles.section}>
-            <Text style={styles.sectionLabel}>Write a review (Optional)</Text>
+            <Text style={styles.sectionLabel}>Write a review (Required)</Text>
             <TextInput
               style={styles.textarea}
-              placeholder="Share details about your experience..."
+              placeholder="Share details about your experience... (Min 20 characters)"
               placeholderTextColor={Colors.gray3}
               value={reviewText}
               onChangeText={setReviewText}
@@ -142,6 +271,9 @@ export default function RatingScreen() {
               numberOfLines={4}
               textAlignVertical="top"
             />
+            <Text style={{ fontSize: FontSize.sm, color: reviewText.length < 20 ? Colors.red : Colors.green, marginTop: 8 }}>
+              {reviewText.length}/20 characters
+            </Text>
           </Animated.View>
         )}
 
@@ -151,14 +283,14 @@ export default function RatingScreen() {
         <View style={styles.actions}>
           <TouchableOpacity
             style={styles.skipBtn}
-            onPress={() => router.back()}
+            onPress={handleReport}
           >
-            <Text style={styles.skipText}>Skip</Text>
+            <Text style={styles.skipText}>Report User</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.submitBtn, stars === 0 && styles.submitBtnDisabled]}
+            style={[styles.submitBtn, (stars === 0 || reviewText.length < 20) && styles.submitBtnDisabled]}
             onPress={handleSubmit}
-            disabled={stars === 0 || isSubmitting}
+            disabled={stars === 0 || reviewText.length < 20 || isSubmitting}
           >
             <Text style={styles.submitText}>
               {isSubmitting ? 'Submitting...' : 'Submit Rating'}

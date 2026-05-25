@@ -9,45 +9,63 @@
  * 5. On Firebase auth cleared → logout authStore → redirect to phone screen
  */
 import { Stack, router } from 'expo-router';
+import * as Sentry from '@sentry/react-native';
 import { useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { StatusBar } from 'expo-status-bar';
+import { ErrorBoundary } from '../src/components/ErrorBoundary/ErrorBoundary';
 import * as SplashScreen from 'expo-splash-screen';
 import { useFonts } from 'expo-font';
 import { AppState, AppStateStatus } from 'react-native';
-import appCheck from '@react-native-firebase/app-check';
+import { initializeAppCheck, ReactNativeFirebaseAppCheckProvider } from '@react-native-firebase/app-check';
+
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import '../src/i18n';
 import { useAuthStore } from '../src/store/authStore';
 import { firebaseAuth } from '../src/services/firebaseAuth';
 import { userService } from '../src/services/userService';
+import { requestPushPermission, setupForegroundHandler, setupBackgroundHandler, sendHeartbeat } from '../src/services/pushNotification';
+import { useLocationStore } from '../src/store/locationStore';
+
+// Initialize FCM background handler once outside the component
+setupBackgroundHandler();
 
 SplashScreen.preventAutoHideAsync();
 
+Sentry.init({
+  dsn: process.env.EXPO_PUBLIC_SENTRY_DSN || '',
+  tracesSampleRate: 1.0,
+});
+
+
 // Initialize Firebase App Check
-try {
-  const rnfbProvider = appCheck().newReactNativeFirebaseAppCheckProvider();
-  rnfbProvider.configure({
-    android: {
-      provider: __DEV__ ? 'debug' : 'playIntegrity',
-      // If debugging App Check, set a specific debugToken here from Firebase console
-      debugToken: 'kaamnow-debug-token'
-    },
-    apple: {
-      provider: __DEV__ ? 'debug' : 'deviceCheck',
-      debugToken: 'kaamnow-debug-token'
-    },
-  });
-  appCheck().initializeAppCheck({ provider: rnfbProvider, isTokenAutoRefreshEnabled: true });
-} catch (err) {
-  console.warn('Firebase App Check initialization failed or already initialized.', err);
-}
+// try {
+//   const rnfbProvider = new ReactNativeFirebaseAppCheckProvider();
+//   rnfbProvider.configure({
+//     android: {
+//       provider: __DEV__ ? 'debug' : 'playIntegrity',
+//       // If debugging App Check, set a specific debugToken here from Firebase console
+//       debugToken: 'kaamnow-debug-token'
+//     },
+//     apple: {
+//       provider: __DEV__ ? 'debug' : 'deviceCheck',
+//       debugToken: 'kaamnow-debug-token'
+//     },
+//   });
+//   initializeAppCheck(undefined, { provider: rnfbProvider, isTokenAutoRefreshEnabled: true });
+// } catch (err) {
+//   Sentry.captureMessage(`${'Firebase App Check initialization failed or already initialized.'} ${err}`);
+// }
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      staleTime: 5 * 60 * 1000,
       retry: 2,
+      refetchOnWindowFocus: true,
     },
   },
 });
@@ -65,47 +83,91 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    const unsubscribeForeground = setupForegroundHandler();
+    return () => unsubscribeForeground();
+  }, []);
+
+  useEffect(() => {
     if (!fontsLoaded) return;
 
     let isMounted = true;
 
     const bootstrap = async () => {
-      // Step 1: Fast-path restore from SecureStore
-      await initSession();
+      try {
+        await Promise.all([
+          initSession(),
+          new Promise<void>((resolve) => {
+            const tempUnsub = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
+              // Unsubscribe immediately so this only runs once for the initial check
+              tempUnsub();
+              
+              if (!isMounted) {
+                resolve();
+                return;
+              }
 
-      // Step 2: Subscribe to Firebase auth state (the single source of truth)
+              try {
+                if (firebaseUser) {
+                  const profile = await userService.getUserByFirebaseUid(firebaseUser.uid);
+                  if (profile) {
+                    await setFirebaseSession(firebaseUser.uid, profile.id);
+                    setUser(profile);
+
+                    // Push notifications & Geo-Engine Heartbeat
+                    const fcmToken = await requestPushPermission();
+                    const loc = useLocationStore.getState();
+                    await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined, fcmToken ?? undefined);
+                  } else {
+                    setLoading(false);
+                  }
+                } else {
+                  await logout();
+                }
+              } catch (error) {
+                Sentry.captureException(new Error(`[Layout] Initial Auth fetch error: ${error}`));
+                setLoading(false);
+              } finally {
+                resolve();
+              }
+            });
+          })
+        ]);
+      } catch (error) {
+        Sentry.captureException(new Error(`[Layout] Bootstrap error: ${error}`));
+        setLoading(false);
+      } finally {
+        await SplashScreen.hideAsync();
+      }
+
+      // Attach the ongoing background listener
       authUnsubscribe.current = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
         if (!isMounted || isHandlingAuth.current) return;
         isHandlingAuth.current = true;
 
         try {
           if (firebaseUser) {
-            // Authenticated — fetch full profile from Supabase
             const profile = await userService.getUserByFirebaseUid(firebaseUser.uid);
-
             if (profile) {
-              // Returning user with complete profile
               await setFirebaseSession(firebaseUser.uid, profile.id);
               setUser(profile);
+
+              // Geo-Engine Heartbeat (assuming permission already asked)
+              const fcmToken = await requestPushPermission();
+              const loc = useLocationStore.getState();
+              await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined, fcmToken ?? undefined);
             } else {
-              // Firebase user exists but no Supabase row yet (first OTP verify)
-              // Let the verify screen handle createOrGetUser()
               setLoading(false);
             }
           } else {
-            // Firebase says not authenticated — clear everything
             await logout();
           }
         } catch (error) {
-          console.error('[Layout] Auth state handler error:', error);
+          Sentry.captureException(new Error(`[Layout] Background Auth handler error: ${error}`));
           setLoading(false);
         } finally {
           isHandlingAuth.current = false;
         }
       });
-
-      // Step 3: Hide splash screen
-      await SplashScreen.hideAsync();
     };
 
     bootstrap();
@@ -124,6 +186,10 @@ export default function RootLayout() {
         const token = await firebaseAuth.getIdToken(true);
         if (!token && firebaseAuth.getCurrentUser() === null) {
           await logout();
+        } else if (token) {
+          // Geo-Engine Heartbeat on app open
+          const loc = useLocationStore.getState();
+          await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined);
         }
       }
     });
@@ -133,22 +199,31 @@ export default function RootLayout() {
   if (!fontsLoaded) return null;
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <StatusBar style="light" backgroundColor="#050505" />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" options={{ animation: 'none' }} />
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="search" options={{ animation: 'fade' }} />
-        <Stack.Screen name="job/[id]" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="job/post" options={{ animation: 'slide_from_bottom' }} />
-        <Stack.Screen
-          name="rating/[applicationId]"
-          options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
-        />
-        <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
-        <Stack.Screen name="location" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-      </Stack>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <BottomSheetModalProvider>
+          <QueryClientProvider client={queryClient}>
+            <StatusBar style="light" translucent backgroundColor="transparent" />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" options={{ animation: 'none' }} />
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="search" options={{ animation: 'fade' }} />
+          <Stack.Screen name="job/[id]" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="job/post" options={{ animation: 'slide_from_bottom' }} />
+          <Stack.Screen
+            name="rating/[applicationId]"
+            options={{ animation: 'slide_from_bottom', presentation: 'modal' }}
+          />
+          <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="location" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+            <Stack.Screen name="+not-found" options={{ title: 'Oops!' }} />
+          </Stack>
+        </QueryClientProvider>
+        </BottomSheetModalProvider>
+      </GestureHandlerRootView>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }

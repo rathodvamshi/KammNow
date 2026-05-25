@@ -1,30 +1,40 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FlashList } from '@shopify/flash-list';
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity,  } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '../src/utils/navigation';
+
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Spacing, Radius, Shadow } from '../src/theme';
 import { useNotificationStore } from '../src/store/notificationStore';
+import { useAuthStore } from '../src/store/authStore';
 import { formatRelativeTime } from '../src/utils/helpers';
 import type { AppNotification } from '../src/types';
 
 export default function NotificationsScreen() {
+  const insets = useSafeAreaInsets();
+  const { user } = useAuthStore();
   const { notifications, fetchNotifications, markAsRead, markAllAsRead, isLoading } = useNotificationStore();
 
   useEffect(() => {
-    fetchNotifications('user-001');
-  }, []);
+    if (user?.id) fetchNotifications(user.id);
+  }, [user?.id]);
 
   const handlePress = (notif: AppNotification) => {
     markAsRead(notif.id);
-    if (notif.type === 'app_accepted' && notif.data?.applicationId) {
-       router.push(`/rating/${notif.data.applicationId}` as any); // Just an example route
+    if (notif.type === 'job_near_you' && notif.data?.job_id) {
+       router.push(`/job/${notif.data.job_id}`);
+    } else if (notif.type === 'app_accepted' && notif.data?.applicationId) {
+       router.push({ pathname: '/rating/[applicationId]', params: { applicationId: notif.data.applicationId } }); // Just an example route
     } else if (notif.type === 'new_application' && notif.data?.roomId) {
-       router.push(`/chat/${notif.data.roomId}` as any);
+       router.push({ pathname: '/chat/[id]', params: { id: notif.data.roomId } });
     }
   };
 
   const getIcon = (type: string) => {
     switch (type) {
+      case 'job_alert': return { name: 'briefcase', color: Colors.blue };
       case 'app_accepted': return { name: 'checkmark-circle', color: Colors.green };
       case 'app_rejected': return { name: 'close-circle', color: Colors.red };
       case 'new_application': return { name: 'chatbubbles', color: Colors.blue };
@@ -46,7 +56,15 @@ export default function NotificationsScreen() {
         <View style={styles.textContainer}>
           <Text style={styles.title}>{item.title}</Text>
           <Text style={styles.body}>{item.body}</Text>
-          <Text style={styles.time}>{formatRelativeTime(item.created_at)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
+            <Text style={styles.time}>{formatRelativeTime(item.created_at)}</Text>
+            {(item as any).distance_km && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 8, backgroundColor: Colors.gray2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                <Ionicons name="location" size={10} color={Colors.ink2} />
+                <Text style={{ fontSize: 10, color: Colors.ink2, marginLeft: 2 }}>{(item as any).distance_km} km</Text>
+              </View>
+            )}
+          </View>
         </View>
         {!item.is_read && <View style={styles.unreadDot} />}
       </TouchableOpacity>
@@ -54,9 +72,9 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+    <View style={styles.screen}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => safeGoBack()}>
           <Ionicons name="chevron-back" size={24} color={Colors.ink} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Notifications</Text>
@@ -65,7 +83,7 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
-      <FlatList
+      <FlashList estimatedItemSize={100}
         data={notifications}
         keyExtractor={item => item.id}
         renderItem={renderItem}
@@ -80,7 +98,7 @@ export default function NotificationsScreen() {
           ) : null
         }
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

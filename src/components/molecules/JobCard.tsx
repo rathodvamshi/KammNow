@@ -1,14 +1,20 @@
 import React, { memo, useMemo, useRef } from 'react';
+import { Pressable } from 'react-native';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  Animated,
   Linking,
   Platform,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Radius, FontFamily, FontSize, Shadow } from '../../theme';
 import { Avatar } from '../atoms/Avatar';
 import { buildJobCardDisplay, type JobCardBenefit } from '../../utils/jobCardDisplay';
@@ -29,52 +35,58 @@ const BENEFIT_TONES: Record<JobCardBenefit['tone'], { bg: string; text: string; 
 
 export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) => {
   const d = useMemo(() => buildJobCardDisplay(job), [job]);
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const applyScaleAnim = useRef(new Animated.Value(1)).current;
+  const cardScale = useSharedValue(1);
+  const applyScale = useSharedValue(1);
+
+  const cardStyle = useAnimatedStyle(() => ({ transform: [{ scale: cardScale.value }] }));
+  const applyStyle = useAnimatedStyle(() => ({ transform: [{ scale: applyScale.value }] }));
 
   return (
-    <Animated.View style={[styles.wrap, { transform: [{ scale: scaleAnim }] }]}>
-      <TouchableOpacity
+    <Animated.View style={[styles.wrap, cardStyle]}>
+      <Pressable
         style={styles.cardOuter}
         onPress={() => onPress(job)}
-        onPressIn={() => Animated.spring(scaleAnim, { toValue: 0.985, useNativeDriver: true, friction: 8 }).start()}
-        onPressOut={() => Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, friction: 6 }).start()}
-        activeOpacity={1}
+        onPressIn={() => (cardScale.value = withSpring(0.985, { damping: 15, stiffness: 300 }))}
+        onPressOut={() => (cardScale.value = withSpring(1, { damping: 15, stiffness: 300 }))}
       >
         <View style={styles.cardBody}>
           {/* Header Row */}
           <View style={styles.headerRow}>
             <View style={styles.employerBlock}>
-              <Avatar name={d.employerName} size="md" />
+              <View style={styles.avatarWrap}>
+                <Avatar name={d.employerName} size="md" />
+                {d.isVerified && (
+                  <View style={styles.verifiedBadge}>
+                    <Ionicons name="checkmark" size={10} color="#FFF" />
+                  </View>
+                )}
+              </View>
               <View style={styles.employerMeta}>
-                <View style={styles.employerNameRow}>
-                  <Text style={styles.employerName} numberOfLines={1}>{d.employerName}</Text>
-                  {d.isVerified && (
-                    <Ionicons name="checkmark-circle" size={14} color="#2563EB" />
-                  )}
-                </View>
+                <Text style={styles.employerName} numberOfLines={1}>{d.employerName}</Text>
                 <View style={styles.ratingRow}>
                   <Ionicons name="star" size={12} color="#F59E0B" />
                   <Text style={styles.ratingText}>{d.ratingValue ? d.ratingValue.toFixed(1) : 'New'}</Text>
+                  <Text style={styles.ratingLabel}> • Employer</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.payBox}>
+            <LinearGradient
+              colors={['#EEF2FF', '#E0E7FF']}
+              style={styles.payBox}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+            >
               <View style={styles.payIconCircle}>
-                <Ionicons name="cash-outline" size={16} color="#1E293B" />
+                <Ionicons name="cash" size={16} color="#4F46E5" />
               </View>
               <View>
-                <Text style={styles.payLabel}>PAY</Text>
+                <Text style={styles.payLabel}>EST. PAY</Text>
                 <View style={styles.payRow}>
                   <Text style={styles.payAmount}>{d.payPrimary}</Text>
                   <Text style={styles.payPeriod}>{d.payPeriod}</Text>
                 </View>
-                {d.payTotalInfo ? (
-                  <Text style={styles.payHint}>{d.payTotalInfo}</Text>
-                ) : null}
               </View>
-            </View>
+            </LinearGradient>
           </View>
 
           {/* Title Row */}
@@ -136,28 +148,33 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
           <View style={styles.footerRow}>
             <View style={styles.distanceBox}>
               <View style={styles.boxHeader}>
-                <Ionicons name="navigate-outline" size={14} color="#90CAF9" />
-                <Text style={styles.boxLabel}>DISTANCE</Text>
+                <Ionicons name="location" size={14} color="#3B82F6" />
+                <Text style={styles.boxLabel}>LOCATION</Text>
               </View>
               <Text style={styles.boxValueStrong}>{d.distanceText}</Text>
             </View>
 
-            <Animated.View style={[styles.applyBtnOuter, { transform: [{ scale: applyScaleAnim }] }]}>
-              <TouchableOpacity
-                style={[styles.applyBtn, d.isFull && styles.applyBtnOff]}
+            <Animated.View style={[styles.applyBtnOuter, applyStyle]}>
+              <Pressable
                 onPress={() => onApply(job)}
-                onPressIn={() => Animated.spring(applyScaleAnim, { toValue: 0.94, useNativeDriver: true }).start()}
-                onPressOut={() => Animated.spring(applyScaleAnim, { toValue: 1, useNativeDriver: true }).start()}
+                onPressIn={() => (applyScale.value = withSpring(0.94, { damping: 15, stiffness: 300 }))}
+                onPressOut={() => (applyScale.value = withSpring(1, { damping: 15, stiffness: 300 }))}
                 disabled={d.isFull}
-                activeOpacity={0.9}
               >
-                <Text style={styles.applyText}>{d.isFull ? 'Full' : 'Apply Now'}</Text>
-              </TouchableOpacity>
+                <LinearGradient
+                  colors={d.isFull ? ['#94A3B8', '#64748B'] : ['#0F172A', '#1E293B']}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                  style={[styles.applyBtn]}
+                >
+                  <Text style={styles.applyText}>{d.isFull ? 'Position Full' : 'Apply Now'}</Text>
+                  {!d.isFull && <Ionicons name="arrow-forward" size={14} color={Colors.white} style={{ marginLeft: 6 }} />}
+                </LinearGradient>
+              </Pressable>
             </Animated.View>
           </View>
 
         </View>
-      </TouchableOpacity>
+      </Pressable>
     </Animated.View>
   );
 });
@@ -171,84 +188,98 @@ const styles = StyleSheet.create({
   },
   cardOuter: {
     backgroundColor: Colors.white,
-    borderRadius: 24,
-    overflow: 'hidden',
+    borderRadius: 28,
     borderWidth: 1,
-    borderColor: '#F8FAFC', // barely visible border like image
-    ...Shadow.sm,
-    ...Platform.select({
-      ios: { boxShadow: '0px 8px 32px rgba(30,41,59,0.05)' },
-    }),
+    borderColor: '#F1F5F9',
+    shadowColor: '#64748B',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 8,
   },
-  cardBody: { padding: 20 },
+  cardBody: { padding: 22 },
 
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 20,
+    alignItems: 'center',
+    marginBottom: 18,
   },
-  employerBlock: { flexDirection: 'row', gap: 12, flex: 1, marginRight: 10 },
+  employerBlock: { flexDirection: 'row', gap: 14, flex: 1, marginRight: 10, alignItems: 'center' },
+  avatarWrap: { position: 'relative' },
+  verifiedBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -4,
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
   employerMeta: { justifyContent: 'center' },
-  employerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   employerName: {
     fontFamily: FontFamily.headingBold,
     fontSize: 16,
     color: '#0F172A',
+    marginBottom: 2,
   },
   ratingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    marginTop: 3,
   },
   ratingText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: 12,
+    fontSize: 13,
     color: '#D97706',
+  },
+  ratingLabel: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: 12,
+    color: '#64748B',
   },
   payBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEF2FF', // light blue
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     gap: 12,
   },
   payIconCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      ios: { boxShadow: '0px 2px 8px rgba(30,41,59,0.1)' },
+      ios: { shadowColor: '#4F46E5', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
+      android: { elevation: 2 }
     }),
   },
   payLabel: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 9,
-    color: '#64748B',
-    textTransform: 'uppercase',
+    fontFamily: FontFamily.headingBold,
+    fontSize: 10,
+    color: '#4F46E5',
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
-  payRow: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  payRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
   payAmount: {
     fontFamily: FontFamily.headingBold,
     fontSize: 18,
-    color: '#0F172A',
+    color: '#1E293B',
+    letterSpacing: -0.5,
   },
   payPeriod: {
-    fontFamily: FontFamily.bodySemiBold,
+    fontFamily: FontFamily.bodyMedium,
     fontSize: 12,
-    color: '#475569',
-  },
-  payHint: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 9,
-    color: '#334155',
-    marginTop: 2,
+    color: '#64748B',
   },
 
   titleRow: {
@@ -348,36 +379,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     alignItems: 'stretch',
+    marginTop: 4,
   },
   distanceBox: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
-    backgroundColor: '#FAFAFA',
-    borderRadius: 16,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 20,
     padding: 14,
     justifyContent: 'center',
   },
   boxValueStrong: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 14,
+    fontSize: 16,
     color: '#0F172A',
   },
-  applyBtnOuter: { flex: 1 },
+  applyBtnOuter: { flex: 1.2 },
   applyBtn: {
     flex: 1,
-    backgroundColor: '#0F172A',
-    borderRadius: 16,
+    borderRadius: 20,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-  },
-  applyBtnOff: {
-    backgroundColor: '#94A3B8',
   },
   applyText: {
     color: Colors.white,
     fontFamily: FontFamily.headingBold,
     fontSize: 16,
+    letterSpacing: 0.5,
   },
 });

@@ -1,38 +1,93 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { safeGoBack } from '../../src/utils/navigation';
+import React, { useEffect, useState } from 'react';
+import { Image } from 'expo-image';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {  } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '../../src/theme';
+import { useQuery } from '@tanstack/react-query';
+import { userService } from '../../src/services/userService';
+import type { User } from '../../src/types';
+import { ActivityIndicator, Linking, FlatList } from 'react-native';
+import { useApplicationStore } from '../../src/store/applicationStore';
+import { supabase } from '../../src/services/supabase';
+import { calculateTrustScore, getTrustBadgeEmoji, getTrustScoreColor } from '../../src/utils/trustScore';
 
 export default function ProfilePreviewScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
   
-  // MOCK DATA based on ID (In a real app, fetch from userStore or API)
-  const isProvider = id?.toString().startsWith('p');
-  const roleLabel = isProvider ? 'PROVIDER' : 'SEEKER';
+  const { myApplications, receivedApplications } = useApplicationStore();
+
+  const [recentReviews, setRecentReviews] = useState<any[]>([]);
+
+  const { data: user, isLoading } = useQuery({
+    queryKey: ['profile', id],
+    queryFn: () => userService.getUserById(id as string),
+    enabled: !!id,
+  });
+
+  React.useEffect(() => {
+    const fetchReviews = async () => {
+      if (!id) return;
+      const { data } = await supabase
+        .from('reviews')
+        .select(`
+          id, rating, review, created_at,
+          reviewer:users!from_user_id(name)
+        `)
+        .eq('to_user_id', id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (data) setRecentReviews(data);
+    };
+    fetchReviews();
+  }, [id]);
   
-  const mockProfile = {
-    name: isProvider ? 'Ramesh Singh' : 'Rahul Kumar',
-    avatar: `https://i.pravatar.cc/300?u=${id}`,
+  if (isLoading || !user) {
+    return (
+      <View style={[styles.screen, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={Colors.saffron} />
+      </View>
+    );
+  }
+
+  const roleLabel = user.role?.toUpperCase() || 'SEEKER';
+  
+  const isProviderProfile = id?.toString().startsWith('p') || user.role === 'provider';
+  
+  // Check if contact info should be unlocked (accepted application exists between them)
+  const isUnlocked = isProviderProfile 
+    ? myApplications.some(app => app.job?.poster_id === id && app.status === 'accepted')
+    : receivedApplications.some(app => app.applicant_id === id && app.status === 'accepted');
+
+  const displayProfile = {
+    name: user.name || 'Anonymous User',
+    avatar: user.avatar_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || 'User')}&background=random`,
     role: roleLabel,
-    rating: 4.8,
-    reviews: 124,
-    completedJobs: 45,
-    isVerified: true,
-    skills: isProvider ? ['Event Management', 'Catering'] : ['Driving', 'Delivery', 'Warehouse'],
-    languages: ['English', 'Hindi', 'Telugu'],
-    memberSince: 'March 2024',
+    phone: user.phone,
+    rating: user.worker_rating || 0,
+    reviews: user.total_reviews || 0,
+    completedJobs: user.jobs_completed || 0,
+    isVerified: user.is_verified || false,
+    skills: user.skills || [],
+    languages: [user.language === 'hi' ? 'Hindi' : user.language === 'te' ? 'Telugu' : 'English'],
+    memberSince: new Date(user.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    locationName: user.location_name || 'Location N/A',
+    trustScore: user.trust_score !== undefined ? user.trust_score : calculateTrustScore(user),
   };
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: Colors.navy }} />
+      
       
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => safeGoBack()}>
           <Ionicons name="chevron-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile Preview</Text>
@@ -43,47 +98,66 @@ export default function ProfilePreviewScreen() {
         
         {/* Profile Card */}
         <Animated.View entering={FadeInDown.springify()} style={[styles.profileCard, Shadow.md]}>
-          <Image source={{ uri: mockProfile.avatar }} style={styles.avatarLarge} />
+          <Image source={{ uri: displayProfile.avatar }} style={styles.avatarLarge} />
           <View style={styles.nameRow}>
-            <Text style={styles.profileName}>{mockProfile.name}</Text>
-            {mockProfile.isVerified && (
+            <Text style={styles.profileName}>{displayProfile.name}</Text>
+            {displayProfile.isVerified && (
               <Ionicons name="checkmark-circle" size={20} color={Colors.blue} style={{ marginLeft: 4 }} />
             )}
           </View>
           
           <View style={styles.roleBadge}>
-            <Text style={styles.roleBadgeText}>{mockProfile.role}</Text>
+            <Text style={styles.roleBadgeText}>{displayProfile.role}</Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md }}>
+            <Ionicons name="location-outline" size={16} color={Colors.gray4} style={{ marginRight: 4 }} />
+            <Text style={{ fontFamily: FontFamily.body, color: Colors.gray4, fontSize: 13 }}>{displayProfile.locationName}</Text>
           </View>
 
           <View style={styles.statsRow}>
             <View style={styles.statBox}>
               <Text style={styles.statValue}>
-                {mockProfile.rating} <Ionicons name="star" size={16} color={Colors.gold} />
+                {displayProfile.rating.toFixed(1)} <Ionicons name="star" size={16} color={Colors.gold} />
               </Text>
-              <Text style={styles.statLabel}>{mockProfile.reviews} Reviews</Text>
+              <Text style={styles.statLabel}>{displayProfile.reviews} Reviews</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.statBox}>
-              <Text style={styles.statValue}>{mockProfile.completedJobs}</Text>
-              <Text style={styles.statLabel}>Jobs Completed</Text>
+              <Text style={styles.statValue}>{displayProfile.completedJobs}</Text>
+              <Text style={styles.statLabel}>{isProviderProfile ? 'Seekers Hired' : 'Jobs Completed'}</Text>
             </View>
           </View>
+
+          {isUnlocked && (
+            <TouchableOpacity 
+              style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.saffronLight, paddingVertical: 12, paddingHorizontal: 24, borderRadius: Radius.round, marginTop: Spacing.lg, gap: 8 }}
+              onPress={() => Linking.openURL(`tel:${displayProfile.phone}`)}
+            >
+              <Ionicons name="call" size={18} color={Colors.saffronDark} />
+              <Text style={{ fontFamily: FontFamily.headingBold, color: Colors.saffronDark }}>Call {displayProfile.phone}</Text>
+            </TouchableOpacity>
+          )}
         </Animated.View>
 
         {/* Skills & Details */}
         <Animated.View entering={FadeInDown.delay(100).springify()} style={[styles.detailsCard, Shadow.sm]}>
           <Text style={styles.sectionTitle}>Skills</Text>
-          <View style={styles.chipRow}>
-            {mockProfile.skills.map(skill => (
-              <View key={skill} style={styles.chip}>
-                <Text style={styles.chipText}>{skill}</Text>
-              </View>
-            ))}
-          </View>
+          {displayProfile.skills.length > 0 ? (
+            <View style={styles.chipRow}>
+              {displayProfile.skills.map(skill => (
+                <View key={skill} style={styles.chip}>
+                  <Text style={styles.chipText}>{skill}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ fontFamily: FontFamily.body, color: Colors.gray4 }}>No skills listed.</Text>
+          )}
 
           <Text style={[styles.sectionTitle, { marginTop: Spacing.md }]}>Languages</Text>
           <View style={styles.chipRow}>
-            {mockProfile.languages.map(lang => (
+            {displayProfile.languages.map(lang => (
               <View key={lang} style={[styles.chip, { backgroundColor: Colors.gray1 }]}>
                 <Text style={styles.chipText}>{lang}</Text>
               </View>
@@ -92,38 +166,69 @@ export default function ProfilePreviewScreen() {
           
           <View style={styles.infoRow}>
             <Ionicons name="calendar-outline" size={18} color={Colors.gray4} />
-            <Text style={styles.infoText}>Member since {mockProfile.memberSince}</Text>
+            <Text style={styles.infoText}>Member since {displayProfile.memberSince}</Text>
           </View>
+
+          {/* Contact Actions (Unlocked when Accepted) */}
+          {isUnlocked ? (
+            <View style={styles.actionRow}>
+              <TouchableOpacity 
+                style={[styles.actionBtn, styles.callBtn]}
+                onPress={() => Linking.openURL(`tel:${displayProfile.phone}`)}
+              >
+                <Ionicons name="call" size={20} color={Colors.white} />
+                <Text style={styles.actionText}>Call {displayProfile.phone}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.lockedBox}>
+              <Ionicons name="lock-closed" size={24} color={Colors.gray4} />
+              <Text style={styles.lockedText}>Contact info hidden. Accept an application to view.</Text>
+            </View>
+          )}
+
+          {/* Trust Score & Badges */}
+          <Animated.View entering={FadeInDown.delay(100).springify()} style={{ marginTop: 24, padding: 16, backgroundColor: Colors.gray1, borderRadius: Radius.lg }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontFamily: FontFamily.headingBold, fontSize: FontSize.lg, color: Colors.ink }}>Trust Score</Text>
+              <Text style={{ fontFamily: FontFamily.headingBold, fontSize: 28, color: getTrustScoreColor(displayProfile.trustScore) }}>
+                {displayProfile.trustScore.toFixed(0)} <Text style={{ fontSize: 20 }}>{getTrustBadgeEmoji(displayProfile.trustScore)}</Text>
+              </Text>
+            </View>
+          </Animated.View>
         </Animated.View>
         
         {/* Recent Feedback */}
         <Animated.View entering={FadeInDown.delay(200).springify()}>
           <Text style={[styles.sectionTitle, { marginHorizontal: 16, marginBottom: 12 }]}>Recent Feedback</Text>
-          <View style={[styles.detailsCard, Shadow.sm, { padding: 0, overflow: 'hidden' }]}>
-            <View style={styles.feedbackItem}>
-              <View style={styles.feedbackHeader}>
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-              </View>
-              <Text style={styles.feedbackText}>"Very punctual and hardworking. Completed the job before time!"</Text>
-              <Text style={styles.feedbackAuthor}>- Provider 002</Text>
+          
+          {recentReviews.length > 0 ? (
+            <View style={[styles.detailsCard, Shadow.sm, { padding: 0, overflow: 'hidden' }]}>
+              {recentReviews.map((review, idx) => (
+                <React.Fragment key={review.id}>
+                  <View style={styles.feedbackItem}>
+                    <View style={styles.feedbackHeader}>
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Ionicons 
+                          key={star} 
+                          name={star <= review.rating ? "star" : "star-outline"} 
+                          size={14} 
+                          color={Colors.gold} 
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.feedbackText}>"{review.review}"</Text>
+                    <Text style={styles.feedbackAuthor}>- {(review.reviewer as any)?.name || 'User'}</Text>
+                  </View>
+                  {idx < recentReviews.length - 1 && <View style={styles.dividerH} />}
+                </React.Fragment>
+              ))}
             </View>
-            <View style={styles.dividerH} />
-            <View style={styles.feedbackItem}>
-              <View style={styles.feedbackHeader}>
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star" size={14} color={Colors.gold} />
-                <Ionicons name="star-outline" size={14} color={Colors.gold} />
-              </View>
-              <Text style={styles.feedbackText}>"Good behavior and followed instructions perfectly."</Text>
-              <Text style={styles.feedbackAuthor}>- Provider 089</Text>
+          ) : (
+            <View style={[styles.detailsCard, Shadow.sm, { alignItems: 'center', paddingVertical: 24 }]}>
+              <Text style={{ fontFamily: FontFamily.body, color: Colors.gray4 }}>No reviews yet.</Text>
             </View>
-          </View>
+          )}
         </Animated.View>
 
       </ScrollView>
@@ -295,10 +400,49 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   feedbackAuthor: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.gray4,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: Spacing.lg,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: Radius.md,
+    gap: 8,
+  },
+  callBtn: {
+    flex: 1,
+    backgroundColor: Colors.saffron,
+    ...Shadow.sm,
+  },
+  actionText: {
+    fontFamily: FontFamily.headingBold,
+    color: Colors.white,
+    fontSize: FontSize.md,
+  },
+  lockedBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.gray1,
+    padding: 16,
+    borderRadius: Radius.md,
+    marginTop: Spacing.lg,
+    gap: 12,
+  },
+  lockedText: {
     fontFamily: FontFamily.body,
-    fontSize: 12,
-    color: Colors.gray5,
-    textAlign: 'right',
+    fontSize: FontSize.sm,
+    color: Colors.gray4,
+    flex: 1,
   },
   dividerH: {
     height: 1,

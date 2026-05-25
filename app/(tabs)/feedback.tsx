@@ -1,14 +1,17 @@
+import { FlashList } from '@shopify/flash-list';
 import React, { useState, useMemo } from 'react';
-import { View, StyleSheet, FlatList, ScrollView, TouchableOpacity, Text } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFeedbackStore } from '../../src/store/feedbackStore';
+import { useUIStore } from '../../src/store/uiStore';
 import { FeedbackSummaryCard } from '../../src/components/molecules/FeedbackSummaryCard';
 import { ReviewCard } from '../../src/components/molecules/ReviewCard';
 import { EmptyFeedbackState } from '../../src/components/molecules/EmptyFeedbackState';
-import { TopBar } from '../../src/components/organisms/TopBar';
+import { CommonNavbar } from '../../src/components/organisms/CommonNavbar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { BottomNav } from '../../src/components/organisms/BottomNav';
-import { CategoryTab } from '../../src/components/atoms/CategoryTab';
+import Animated, { FadeInUp } from 'react-native-reanimated';
 import { Colors, FontFamily, FontSize, Spacing, Radius } from '../../src/theme';
 
 const FILTER_OPTIONS = ['All', '5★', '4★', '3★', '2★', '1★'];
@@ -16,6 +19,8 @@ type SortOption = 'Newest' | 'Oldest' | 'Highest Rated';
 
 export default function FeedbackScreen() {
   const { feedbacks, incrementHelpful, reportFeedback } = useFeedbackStore();
+  const { currentRole } = useUIStore();
+  const insets = useSafeAreaInsets();
 
   // Assuming the logged-in user is 'user1' (seeker)
   const myFeedbacks = feedbacks.filter(f => f.receiverId === 'user1');
@@ -56,17 +61,20 @@ export default function FeedbackScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: Colors.navy }} />
+      
 
-      <View style={styles.topBarWrap}>
-        <TopBar
-          title="⭐ Feedback & Reviews"
-          showBack={false}
-          showPostJob={false}
-        />
-      </View>
+      
+      <LinearGradient
+        colors={currentRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#004DEB', '#0039B3']}
+        style={[styles.topBarWrap, { paddingTop: Math.max(insets.top, 10) + 4, paddingBottom: 16 }]}
+        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+      >
+        <CommonNavbar />
+        <Text style={[styles.pageHeaderTitle, { marginTop: 8 }]}>⭐ Feedback & Reviews</Text>
+      </LinearGradient>
 
-      <FlatList
+
+      <FlashList estimatedItemSize={100}
         data={filteredAndSorted}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContent}
@@ -77,57 +85,78 @@ export default function FeedbackScreen() {
 
             {/* Filters Row */}
             <View style={styles.filtersWrapper}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
+              <View style={[styles.filterScroll, { flexDirection: 'row', gap: 4 }]}>
                 {FILTER_OPTIONS.map((f) => {
                   const count = f === 'All'
                     ? myFeedbacks.length
                     : myFeedbacks.filter(fb => fb.rating === parseInt(f.charAt(0))).length;
 
                   return (
-                    <CategoryTab
+                    <TouchableOpacity
                       key={f}
-                      label={f}
-                      count={count}
-                      iconName={f === 'All' ? 'list-outline' : 'star'}
-                      isActive={activeFilter === f}
                       onPress={() => setActiveFilter(f)}
-                    />
+                      style={[
+                        styles.ratingTab,
+                        { flex: 1 },
+                        activeFilter === f && styles.ratingTabActive
+                      ]}
+                    >
+                      <Text style={[styles.ratingTabText, activeFilter === f && styles.ratingTabTextActive]}>
+                        {f}
+                      </Text>
+                      {count > 0 && (
+                        <View style={[styles.ratingBadge, activeFilter === f && styles.ratingBadgeActive]}>
+                          <Text style={[styles.ratingBadgeText, activeFilter === f && styles.ratingBadgeTextActive]}>
+                            {count}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </View>
             </View>
 
             {/* Sort Row */}
-            <View style={styles.sortRow}>
+            <View style={[styles.sortRow, { zIndex: 100 }]}>
               <Text style={styles.sortResultsText}>{filteredAndSorted.length} Reviews</Text>
-              <TouchableOpacity style={styles.sortBtn} onPress={() => setShowSort(!showSort)}>
-                <Text style={styles.sortBtnText}>{activeSort}</Text>
-                <Ionicons name="chevron-down" size={16} color={Colors.ink2} />
-              </TouchableOpacity>
-            </View>
+              
+              <View style={{ position: 'relative', zIndex: 100 }}>
+                <TouchableOpacity style={styles.sortBtn} onPress={() => setShowSort(!showSort)}>
+                  <Ionicons name="filter" size={14} color={Colors.ink2} />
+                  <Text style={styles.sortBtnText}>{activeSort}</Text>
+                  <Ionicons name="chevron-down" size={14} color={Colors.ink2} />
+                </TouchableOpacity>
 
-            {showSort && (
-              <View style={styles.sortDropdown}>
-                {(['Newest', 'Oldest', 'Highest Rated'] as SortOption[]).map(opt => (
-                  <TouchableOpacity
-                    key={opt}
-                    style={styles.sortOption}
-                    onPress={() => { setActiveSort(opt); setShowSort(false); }}
-                  >
-                    <Text style={[styles.sortOptionText, activeSort === opt && { color: Colors.saffron, fontFamily: FontFamily.bodySemiBold }]}>{opt}</Text>
-                    {activeSort === opt && <Ionicons name="checkmark" size={16} color={Colors.saffron} />}
-                  </TouchableOpacity>
-                ))}
+                {showSort && (
+                  <Animated.View entering={FadeInUp.duration(200).springify()} style={styles.sortDropdown}>
+                    {(['Newest', 'Oldest', 'Highest Rated'] as SortOption[]).map((opt, idx, arr) => (
+                      <TouchableOpacity
+                        key={opt}
+                        style={[
+                          styles.sortOption,
+                          idx !== arr.length - 1 && { borderBottomWidth: 1, borderBottomColor: Colors.gray1 }
+                        ]}
+                        onPress={() => { setActiveSort(opt); setShowSort(false); }}
+                      >
+                        <Text style={[styles.sortOptionText, activeSort === opt && { color: Colors.saffron, fontFamily: FontFamily.bodySemiBold }]}>{opt}</Text>
+                        {activeSort === opt && <Ionicons name="checkmark" size={16} color={Colors.saffron} />}
+                      </TouchableOpacity>
+                    ))}
+                  </Animated.View>
+                )}
               </View>
-            )}
+            </View>
           </>
         }
-        renderItem={({ item }) => (
-          <ReviewCard
-            feedback={item}
-            onHelpful={() => handleHelpful(item.id)}
-            onReport={() => handleReport(item.id)}
-          />
+        renderItem={({ item, index }) => (
+          <Animated.View entering={FadeInUp.delay((index ?? 0) * 100).springify()}>
+            <ReviewCard
+              feedback={item}
+              onHelpful={() => handleHelpful(item.id)}
+              onReport={() => handleReport(item.id)}
+            />
+          </Animated.View>
         )}
         ListEmptyComponent={<EmptyFeedbackState />}
       />
@@ -142,16 +171,30 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  
   topBarWrap: {
-    backgroundColor: Colors.navy,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    paddingBottom: 24,
-    marginBottom: -16,
+    paddingHorizontal: 20,
+    paddingTop: 12, 
+    paddingBottom: 24, 
+    borderBottomLeftRadius: 28, 
+    borderBottomRightRadius: 28, 
+    position: 'relative',
+    overflow: 'hidden',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    boxShadow: "0px 4px 16px rgba(0,0,0,0.1)",
+    marginBottom: 16,
     zIndex: 10,
   },
+  pageHeaderTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 22,
+    color: Colors.white,
+    marginTop: 8,
+    marginBottom: 4,
+  },
   listContent: {
-    paddingTop: 32,
+    paddingTop: 16,
     paddingHorizontal: 16,
     paddingBottom: 100,
   },
@@ -162,6 +205,49 @@ const styles = StyleSheet.create({
   },
   filterScroll: {
     paddingHorizontal: 16,
+  },
+  ratingTab: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.gray1,
+    borderRadius: Radius.round,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+    gap: 4,
+  },
+  ratingTabActive: {
+    backgroundColor: Colors.saffron,
+    borderColor: Colors.saffronDark,
+  },
+  ratingTabText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: 13,
+    color: Colors.ink2,
+  },
+  ratingTabTextActive: {
+    color: Colors.white,
+  },
+  ratingBadge: {
+    backgroundColor: Colors.gray2,
+    paddingHorizontal: 4,
+    height: 18,
+    minWidth: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ratingBadgeActive: {
+    backgroundColor: Colors.white,
+  },
+  ratingBadgeText: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 10,
+    color: Colors.ink2,
+  },
+  ratingBadgeTextActive: {
+    color: Colors.saffronDark,
   },
   sortRow: {
     flexDirection: 'row',
@@ -193,26 +279,24 @@ const styles = StyleSheet.create({
   },
   sortDropdown: {
     position: 'absolute',
-    top: 290, // Approx beneath sort btn
+    top: 40,
     right: 0,
     backgroundColor: Colors.white,
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.gray2,
-    padding: 8,
-    width: 160,
-    zIndex: 10,
-    shadowColor: Colors.ink,
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    width: 170,
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
   },
   sortOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
   sortOptionText: {
     fontFamily: FontFamily.body,

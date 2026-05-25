@@ -5,7 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
+  
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
@@ -68,9 +68,9 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
+      
         <TopBar title="⚙️ Settings" showBack showPostJob={false} />
-      </SafeAreaView>
+      
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
         {sections.map((section, idx) => (

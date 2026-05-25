@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -35,9 +36,22 @@ const SKILL_OPTIONS = [
 ];
 
 export default function ProfileScreen() {
+  const insets = useSafeAreaInsets();
   const { user, updateUser, logout } = useAuthStore();
   const { currentRole, showToast } = useUIStore();
+  const { myApplications } = useApplicationStore();
   const isSeeker = currentRole === 'seeker';
+
+  // Compute Verified Skills based on completed jobs
+  const verifiedSkills = React.useMemo(() => {
+    const skills = new Set<string>();
+    myApplications.forEach(app => {
+      if (app.status === 'completed' && app.job?.required_skills) {
+        app.job.required_skills.forEach(s => skills.add(s));
+      }
+    });
+    return Array.from(skills);
+  }, [myApplications]);
 
   const TABS = isSeeker ? ['Overview', 'Earnings', 'Reviews'] : ['Company', 'Listings', 'Team'];
   const tabWidth = (width - 32) / TABS.length;
@@ -216,17 +230,25 @@ export default function ProfileScreen() {
         <View style={styles.skillsContainer}>
           {SKILL_OPTIONS.map((skill) => {
             const active = skills.includes(skill);
+            const isVerified = verifiedSkills.includes(skill);
+            
             if (!isEditing && !active) return null;
             return (
               <TouchableOpacity
                 key={skill}
-                style={[styles.skillPill, active && styles.skillPillActive]}
+                style={[styles.skillPill, active && styles.skillPillActive, isVerified && !isEditing && { borderColor: Colors.green, backgroundColor: Colors.green + '1A' }]}
                 onPress={() => isEditing && toggleSkill(skill)}
                 disabled={!isEditing}
                 activeOpacity={0.7}
               >
-                {active && <Ionicons name="checkmark" size={14} color={Colors.saffronDark} style={{ marginRight: 4 }} />}
-                <Text style={[styles.skillPillText, active && styles.skillPillTextActive]}>{skill}</Text>
+                {isVerified && !isEditing ? (
+                  <Ionicons name="shield-checkmark" size={14} color={Colors.green} style={{ marginRight: 4 }} />
+                ) : active && isEditing ? (
+                  <Ionicons name="checkmark" size={14} color={Colors.saffronDark} style={{ marginRight: 4 }} />
+                ) : null}
+                <Text style={[styles.skillPillText, active && styles.skillPillTextActive, isVerified && !isEditing && { color: Colors.green }]}>
+                  {skill}
+                </Text>
               </TouchableOpacity>
             );
           })}
@@ -498,18 +520,18 @@ export default function ProfileScreen() {
         {/* Cover Photo */}
         <View style={styles.coverPhoto}>
           <LinearGradient
-            colors={isSeeker ? ['#1E293B', Colors.navy] : [Colors.saffron, '#991B1B']}
+            colors={isSeeker ? ['#1E293B', '#0F172A'] : ['#004DEB', '#0039B3']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <SafeAreaView>
-            <View style={styles.coverNav}>
+          <View>
+            <View style={[styles.coverNav, { paddingTop: insets.top + 8 }]}>
               <View style={{ flex: 1 }} />
               <TouchableOpacity style={styles.settingsBtn} onPress={() => router.push('/settings' as any)}>
                 <Ionicons name="settings-outline" size={24} color={Colors.white} />
               </TouchableOpacity>
             </View>
-          </SafeAreaView>
+          </View>
         </View>
 
         {/* Identity & Actions */}
@@ -567,6 +589,11 @@ export default function ProfileScreen() {
                 <Text style={styles.primaryBtnText}>Edit Profile</Text>
               </TouchableOpacity>
             )}
+
+            <TouchableOpacity style={[styles.secondaryBtn, { flex: 1, flexDirection: 'row', gap: 6, paddingHorizontal: 16, borderRadius: Radius.lg, width: 'auto' }]} onPress={() => useUIStore.getState().setRole(isSeeker ? 'provider' : 'seeker')}>
+              <Ionicons name="swap-horizontal" size={18} color={Colors.navy} />
+              <Text style={{ fontFamily: FontFamily.bodySemiBold, color: Colors.navy, fontSize: 13 }}>Switch Role</Text>
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.secondaryBtn} onPress={handleShare}>
               <Ionicons name="share-social" size={18} color={Colors.navy} />
@@ -629,13 +656,14 @@ const styles = StyleSheet.create({
   coverNav: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.lg,
-    paddingTop: Platform.OS === 'android' ? Spacing.xl : Spacing.sm,
+    paddingTop: 0,
   },
   settingsBtn: {
-    width: 40, height: 40,
-    borderRadius: 20,
+    width: 44, height: 44,
+    borderRadius: 22,
     backgroundColor: 'rgba(0,0,0,0.3)',
     alignItems: 'center', justifyContent: 'center',
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.15)",
   },
   identitySection: {
     alignItems: 'center',

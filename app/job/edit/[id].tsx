@@ -1,3 +1,6 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { safeGoBack } from '../../../src/utils/navigation';
+import { FlashList } from '@shopify/flash-list';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -6,13 +9,13 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  SafeAreaView,
+  
   Alert,
   KeyboardAvoidingView,
   Platform,
   Animated,
   Modal,
-} from 'react-native';
+  } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -196,6 +199,7 @@ const PickerButton = ({
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export default function EditJobScreen() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams();
   const { myPostedJobs } = useJobStore();
   const jobToEdit = myPostedJobs.find((j: any) => j.id === id);
@@ -378,7 +382,7 @@ export default function EditJobScreen() {
 
   const handleBack = () => {
     if (currentStep > 1) animateToStep(currentStep - 1);
-    else router.back();
+    else safeGoBack();
   };
 
   const handlePost = async () => {
@@ -399,7 +403,7 @@ export default function EditJobScreen() {
   if (posted) {
     return (
       <View style={styles.successScreen}>
-        <SafeAreaView style={{ backgroundColor: Colors.navy }} />
+        
         <View style={styles.successContent}>
           <View style={styles.successIconWrap}>
             <Text style={{ fontSize: 48 }}>🎉</Text>
@@ -459,10 +463,15 @@ export default function EditJobScreen() {
 
             <View style={styles.field}>
               <FieldLabel>Category *</FieldLabel>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingBottom: 8 }}>
-                {CATEGORIES.map(cat => (
+              <FlashList estimatedItemSize={100}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                data={CATEGORIES}
+                keyExtractor={(item) => item.key}
+                contentContainerStyle={{ paddingBottom: 8, paddingHorizontal: 4 } as any}
+                ItemSeparatorComponent={() => <View style={{ height: 10, width: 10 }} />}
+                renderItem={({ item: cat }) => (
                   <TouchableOpacity
-                    key={cat.key}
                     style={[styles.categoryCard, category === cat.key && styles.categoryCardActive]}
                     onPress={() => setCategory(cat.key)}
                     activeOpacity={0.8}
@@ -472,8 +481,8 @@ export default function EditJobScreen() {
                       {cat.label}
                     </Text>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
+                )}
+              />
             </View>
 
             <View style={styles.field}>
@@ -867,16 +876,16 @@ export default function EditJobScreen() {
 
   // ── Layout ───────────────────────────────────────────────────────────────
   return (
-    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }}>
-        <View style={styles.header}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 12 }]}>
           <TouchableOpacity style={styles.headerBack} onPress={handleBack} activeOpacity={0.8}>
             <Ionicons name="arrow-back" size={22} color={Colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Edit Job</Text>
           <View style={{ width: 40 }} />
         </View>
-      </SafeAreaView>
+      
 
       {/* Progress Bar */}
       <View style={styles.progressSection}>
@@ -1332,7 +1341,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.gray2,
     marginBottom: 16,
-    gap: 12,
+    
     ...Shadow.sm,
   },
   summaryHeader: {
@@ -1399,7 +1408,7 @@ const styles = StyleSheet.create({
   termsRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 12,
+    
     padding: 14,
     backgroundColor: Colors.white,
     borderRadius: Radius.md,
@@ -1456,7 +1465,7 @@ const styles = StyleSheet.create({
   ctaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    
     width: '100%',
   },
   prevBtn: {

@@ -1,19 +1,24 @@
 import React from 'react';
 import {
-  TouchableOpacity,
+  Pressable,
   Text,
   StyleSheet,
   ActivityIndicator,
   ViewStyle,
   TextStyle,
-  TouchableOpacityProps,
+  PressableProps,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { Colors, Radius, FontFamily, FontSize } from '../../theme';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'navy';
 type Size = 'sm' | 'md' | 'lg';
 
-interface ButtonProps extends TouchableOpacityProps {
+interface ButtonProps extends PressableProps {
   variant?: Variant;
   size?: Size;
   label: string;
@@ -53,32 +58,52 @@ export const Button: React.FC<ButtonProps> = ({
   const vs = variantStyles[variant];
   const ss = sizeStyles[size];
 
+  const scale = useSharedValue(1);
+
+  const handlePressIn = (e: any) => {
+    scale.value = withSpring(0.96, { damping: 15, stiffness: 300 });
+    if (rest.onPressIn) rest.onPressIn(e);
+  };
+
+  const handlePressOut = (e: any) => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+    if (rest.onPressOut) rest.onPressOut(e);
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
   return (
-    <TouchableOpacity
-      style={[
-        styles.base,
-        {
-          backgroundColor: vs.bg,
-          borderColor: vs.border,
-          paddingVertical: ss.pad,
-          height: ss.height,
-          opacity: disabled || isLoading ? 0.55 : 1,
-          alignSelf: fullWidth ? 'stretch' : 'auto',
-        },
-        style,
-      ]}
-      disabled={disabled || isLoading}
-      activeOpacity={0.8}
-      {...rest}
-    >
-      {isLoading ? (
-        <ActivityIndicator color={vs.text} size="small" />
-      ) : (
-        <Text style={[styles.label, { color: vs.text, fontSize: ss.fontSize }, textStyle]}>
-          {icon ? `${icon} ${label}` : label}
-        </Text>
-      )}
-    </TouchableOpacity>
+    <Animated.View style={[animatedStyle, fullWidth && { width: '100%' }]}>
+      <Pressable
+        style={[
+          styles.base,
+          {
+            backgroundColor: vs.bg,
+            borderColor: vs.border,
+            paddingVertical: ss.pad,
+            height: ss.height,
+            opacity: disabled || isLoading ? 0.55 : 1,
+            alignSelf: fullWidth ? 'stretch' : 'auto',
+          },
+          style,
+        ]}
+        disabled={disabled || isLoading}
+        android_ripple={{ color: 'rgba(0,0,0,0.1)', borderless: false }}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        {...rest}
+      >
+        {isLoading ? (
+          <ActivityIndicator color={vs.text} size="small" />
+        ) : (
+          <Text style={[styles.label, { color: vs.text, fontSize: ss.fontSize }, textStyle]}>
+            {icon ? `${icon} ${label}` : label}
+          </Text>
+        )}
+      </Pressable>
+    </Animated.View>
   );
 };
 

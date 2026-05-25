@@ -3,24 +3,30 @@
  * Modular wrapper around @react-native-firebase/auth for phone OTP.
  * Handles Android + iOS natively without any web fallback.
  */
+import * as Sentry from '@sentry/react-native';
 import { 
   FirebaseAuthTypes, 
   getAuth, 
   signInWithPhoneNumber, 
   onAuthStateChanged, 
   signOut,
-  PhoneAuthProvider
+  PhoneAuthProvider,
+  signInWithCredential,
+  getIdToken
 } from '@react-native-firebase/auth';
 
 class FirebaseAuthService {
-  constructor() {
-    if (__DEV__) {
-      // Disable app verification (reCAPTCHA/SafetyNet) for local development
-      // Make sure to register your test numbers in the Firebase Console!
-      getAuth().settings.appVerificationDisabledForTesting = true;
-    }
-  }
+  private _devSettingsApplied = false;
 
+  private getAuthInstance() {
+    const authInstance = getAuth();
+    if (__DEV__ && !this._devSettingsApplied) {
+      // Disable app verification (reCAPTCHA/SafetyNet) for local development
+      authInstance.settings.appVerificationDisabledForTesting = true;
+      this._devSettingsApplied = true;
+    }
+    return authInstance;
+  }
 
   /**
    * Sends OTP SMS to the given E.164 formatted phone number.
@@ -29,7 +35,7 @@ class FirebaseAuthService {
    */
   async sendOtp(phoneE164: string): Promise<string> {
     try {
-      const authInstance = getAuth();
+      const authInstance = this.getAuthInstance();
       const confirmation = await signInWithPhoneNumber(authInstance, phoneE164);
       if (!confirmation.verificationId) {
         throw new Error('No verification ID returned from Firebase.');
@@ -49,8 +55,8 @@ class FirebaseAuthService {
   ): Promise<FirebaseAuthTypes.User> {
     try {
       const credential = PhoneAuthProvider.credential(verificationId, code);
-      const authInstance = getAuth();
-      const result = await authInstance.signInWithCredential(credential);
+      const authInstance = this.getAuthInstance();
+      const result = await signInWithCredential(authInstance, credential);
       if (!result.user) throw new Error('Authentication failed. Please try again.');
       return result.user;
     } catch (error: any) {
@@ -59,21 +65,21 @@ class FirebaseAuthService {
   }
 
   getCurrentUser(): FirebaseAuthTypes.User | null {
-    return getAuth().currentUser;
+    return this.getAuthInstance().currentUser;
   }
 
   onAuthStateChanged(
     callback: (user: FirebaseAuthTypes.User | null) => void
   ): () => void {
-    const authInstance = getAuth();
+    const authInstance = this.getAuthInstance();
     return onAuthStateChanged(authInstance, callback);
   }
 
   async getIdToken(forceRefresh = false): Promise<string | null> {
     try {
-      const user = getAuth().currentUser;
+      const user = this.getAuthInstance().currentUser;
       if (!user) return null;
-      return await user.getIdToken(forceRefresh);
+      return await getIdToken(user, forceRefresh);
     } catch {
       return null;
     }
@@ -81,10 +87,10 @@ class FirebaseAuthService {
 
   async signOut(): Promise<void> {
     try {
-      const authInstance = getAuth();
+      const authInstance = this.getAuthInstance();
       await signOut(authInstance);
     } catch (error: any) {
-      console.warn('[FirebaseAuth] signOut error:', error.message);
+      Sentry.captureMessage(`[FirebaseAuth] signOut error: ${error.message}`);
     }
   }
 

@@ -1,20 +1,17 @@
 /**
- * FilterBar — Two compact dropdown buttons (Sort + Pay Type)
+ * FilterBar — Horizontal scrollable filter chips with dropdown panels
  *
- * Layout (inside sticky header, right side of "Jobs Near You" row):
+ * Layout (inside sticky header, below categories):
  *
- *   Jobs Near You          [↕ Near Me ▾]  [⏱ Any Pay ▾]
- *
- * On tap each button opens a small dropdown popover just below it
- * with all options listed. Selecting one closes the dropdown.
+ *   [📍 5 km  −  +]  [↕ Near Me ▾]  [⏱ Any Pay ▾]  [✕ Reset]
  *
  * Design:
- * - Buttons are pill-shaped, 28px tall, compact
- * - Active selection shown in button label
- * - Active (non-default) button gets saffron tint
- * - Dropdown is a floating card with shadow, rendered via Modal
- *   so it escapes the sticky header's overflow clip
- * - Each option row has icon + label + checkmark when selected
+ * - Chips are pill-shaped, 32px tall, horizontally scrollable
+ * - Active (non-default) chips get saffron tint + filled background
+ * - Radius stepper is a compact inline control
+ * - Dropdown panels are floating cards rendered via Modal
+ * - Each option row has icon + label + sublabel + checkmark when selected
+ * - "Reset" chip appears only when any filter is non-default
  */
 
 import React, { useRef, useCallback, useState } from 'react';
@@ -27,6 +24,7 @@ import {
   Modal,
   TouchableOpacity,
   TouchableWithoutFeedback,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontFamily, FontSize, Radius, Shadow } from '../../theme';
@@ -136,7 +134,7 @@ function OptionRow<T>({ option, isSelected, onPress }: OptionRowProps<T>) {
       >
         {/* Icon circle */}
         <View style={[styles.optionIconCircle, { backgroundColor: option.iconBg }]}>
-          <Ionicons name={option.icon} size={14} color={option.iconColor} />
+          <Ionicons name={option.icon} size={15} color={option.iconColor} />
         </View>
 
         {/* Labels */}
@@ -149,31 +147,33 @@ function OptionRow<T>({ option, isSelected, onPress }: OptionRowProps<T>) {
 
         {/* Checkmark */}
         {isSelected && (
-          <Ionicons name="checkmark-circle" size={18} color={Colors.saffron} />
+          <View style={styles.checkCircle}>
+            <Ionicons name="checkmark" size={12} color={Colors.white} />
+          </View>
         )}
       </Animated.View>
     </Pressable>
   );
 }
 
-// ─── Dropdown trigger button ──────────────────────────────────────────────────
+// ─── Filter chip button ───────────────────────────────────────────────────────
 
-interface DropdownButtonProps {
+interface FilterChipProps {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
-  isActive: boolean; // non-default selection
+  isActive: boolean;
   isOpen: boolean;
   onPress: () => void;
-  buttonRef: React.RefObject<View>;
+  chipRef: React.RefObject<View>;
 }
 
-const DropdownButton: React.FC<DropdownButtonProps> = ({
+const FilterChip: React.FC<FilterChipProps> = ({
   icon,
   label,
   isActive,
   isOpen,
   onPress,
-  buttonRef,
+  chipRef,
 }) => {
   const pressAnim = useRef(new Animated.Value(1)).current;
   const chevronAnim = useRef(new Animated.Value(0)).current;
@@ -191,9 +191,11 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({
     outputRange: ['0deg', '180deg'],
   });
 
+  const isHighlighted = isActive || isOpen;
+
   return (
     <Pressable
-      ref={buttonRef as any}
+      ref={chipRef as any}
       onPress={onPress}
       onPressIn={() =>
         Animated.spring(pressAnim, { toValue: 0.93, useNativeDriver: true, friction: 8 }).start()
@@ -207,25 +209,24 @@ const DropdownButton: React.FC<DropdownButtonProps> = ({
     >
       <Animated.View
         style={[
-          styles.dropBtn,
-          isActive && styles.dropBtnActive,
-          isOpen && styles.dropBtnOpen,
+          styles.chip,
+          isHighlighted && styles.chipActive,
           { transform: [{ scale: pressAnim }] },
         ]}
       >
         <Ionicons
           name={icon}
-          size={12}
-          color={isActive || isOpen ? Colors.saffron : Colors.gray4}
+          size={13}
+          color={isHighlighted ? Colors.saffron : Colors.gray4}
         />
-        <Text style={[styles.dropBtnText, (isActive || isOpen) && styles.dropBtnTextActive]}>
+        <Text style={[styles.chipText, isHighlighted && styles.chipTextActive]}>
           {label}
         </Text>
         <Animated.View style={{ transform: [{ rotate: chevronRotate }] }}>
           <Ionicons
             name="chevron-down"
-            size={10}
-            color={isActive || isOpen ? Colors.saffron : Colors.gray4}
+            size={11}
+            color={isHighlighted ? Colors.saffron : Colors.gray4}
           />
         </Animated.View>
       </Animated.View>
@@ -243,6 +244,7 @@ interface DropdownPanelProps<T> {
   onSelect: (id: T) => void;
   onClose: () => void;
   title: string;
+  accentColor?: string;
 }
 
 function DropdownPanel<T extends string>({
@@ -253,13 +255,14 @@ function DropdownPanel<T extends string>({
   onSelect,
   onClose,
   title,
+  accentColor = Colors.saffron,
 }: DropdownPanelProps<T>) {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   React.useEffect(() => {
     if (visible) {
-      slideAnim.setValue(-8);
+      slideAnim.setValue(-10);
       opacityAnim.setValue(0);
       Animated.parallel([
         Animated.spring(slideAnim, {
@@ -279,10 +282,9 @@ function DropdownPanel<T extends string>({
 
   if (!visible || !anchorLayout) return null;
 
-  // Position dropdown below the button, right-aligned to button's right edge
-  const PANEL_WIDTH = 210;
+  const PANEL_WIDTH = 220;
   const dropLeft = anchorLayout.x + anchorLayout.width - PANEL_WIDTH;
-  const dropTop = anchorLayout.y + anchorLayout.height + 6;
+  const dropTop = anchorLayout.y + anchorLayout.height + 8;
 
   return (
     <Modal
@@ -306,33 +308,92 @@ function DropdownPanel<T extends string>({
             opacity: opacityAnim,
             transform: [{ translateY: slideAnim }],
           },
-        , { pointerEvents: "box-none" }]}
+          { pointerEvents: 'box-none' },
+        ]}
       >
         {/* Panel header */}
         <View style={styles.panelHeader}>
+          <View style={[styles.panelTitleDot, { backgroundColor: accentColor }]} />
           <Text style={styles.panelTitle}>{title}</Text>
           <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close" size={16} color={Colors.gray4} />
+            <View style={styles.panelCloseBtn}>
+              <Ionicons name="close" size={13} color={Colors.gray4} />
+            </View>
           </TouchableOpacity>
         </View>
         <View style={styles.panelDivider} />
 
         {/* Options */}
-        {options.map((opt, i) => (
-          <OptionRow
-            key={String(opt.id)}
-            option={opt}
-            isSelected={selectedId === opt.id}
-            onPress={() => {
-              onSelect(opt.id);
-              onClose();
-            }}
-          />
-        ))}
+        <View style={styles.panelOptions}>
+          {options.map((opt) => (
+            <OptionRow
+              key={String(opt.id)}
+              option={opt}
+              isSelected={selectedId === opt.id}
+              onPress={() => {
+                onSelect(opt.id);
+                onClose();
+              }}
+            />
+          ))}
+        </View>
       </Animated.View>
     </Modal>
   );
 }
+
+// ─── Radius stepper chip ──────────────────────────────────────────────────────
+
+interface RadiusChipProps {
+  radiusKm: number;
+  onDecrement: () => void;
+  onIncrement: () => void;
+  minKm?: number;
+  maxKm?: number;
+}
+
+const RadiusChip: React.FC<RadiusChipProps> = ({
+  radiusKm,
+  onDecrement,
+  onIncrement,
+  minKm = 1,
+  maxKm = 20,
+}) => {
+  const canDecrement = radiusKm > minKm;
+  const canIncrement = radiusKm < maxKm;
+
+  return (
+    <View style={styles.radiusChip}>
+      <Ionicons name="location" size={12} color={Colors.saffron} />
+      <Text style={styles.radiusLabel}>{radiusKm} km</Text>
+      <View style={styles.radiusDivider} />
+      <TouchableOpacity
+        onPress={onDecrement}
+        disabled={!canDecrement}
+        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+        accessibilityLabel="Decrease radius"
+      >
+        <Ionicons
+          name="remove"
+          size={13}
+          color={canDecrement ? Colors.saffron : Colors.gray3}
+        />
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={onIncrement}
+        disabled={!canIncrement}
+        hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+        accessibilityLabel="Increase radius"
+      >
+        <Ionicons
+          name="add"
+          size={13}
+          color={canIncrement ? Colors.saffron : Colors.gray3}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 // ─── Public FilterBar component ───────────────────────────────────────────────
 
@@ -341,6 +402,14 @@ export interface FilterBarProps {
   payTypeFilter: PayTypeFilter;
   onSortChange: (sort: SortOption) => void;
   onPayTypeChange: (type: PayTypeFilter) => void;
+  /** Radius stepper — pass these to embed the radius control inside FilterBar */
+  radiusKm?: number;
+  onRadiusDecrement?: () => void;
+  onRadiusIncrement?: () => void;
+  minRadiusKm?: number;
+  maxRadiusKm?: number;
+  /** Called when the reset chip is tapped */
+  onReset?: () => void;
 }
 
 export const FilterBar: React.FC<FilterBarProps> = ({
@@ -348,12 +417,18 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   payTypeFilter,
   onSortChange,
   onPayTypeChange,
+  radiusKm,
+  onRadiusDecrement,
+  onRadiusIncrement,
+  minRadiusKm = 1,
+  maxRadiusKm = 20,
+  onReset,
 }) => {
   const [sortOpen, setSortOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
 
-  const sortBtnRef = useRef<View>(null);
-  const payBtnRef = useRef<View>(null);
+  const sortChipRef = useRef<View>(null);
+  const payChipRef = useRef<View>(null);
 
   const [sortLayout, setSortLayout] = useState<{
     x: number; y: number; width: number; height: number;
@@ -383,34 +458,61 @@ export const FilterBar: React.FC<FilterBarProps> = ({
 
   const sortIsNonDefault = sortBy !== 'distance';
   const payIsNonDefault = payTypeFilter !== 'all';
+  const hasActiveFilters = sortIsNonDefault || payIsNonDefault;
+
+  const showRadius = radiusKm !== undefined && onRadiusDecrement && onRadiusIncrement;
 
   return (
-    <View style={styles.container}>
-      {/* Sort dropdown */}
-      <DropdownButton
-        buttonRef={sortBtnRef}
-        icon={activeSortOption.icon}
-        label={activeSortOption.label}
-        isActive={sortIsNonDefault}
-        isOpen={sortOpen}
-        onPress={() =>
-          measureAndOpen(sortBtnRef, setSortLayout, setSortOpen, () => setPayOpen(false))
-        }
-      />
+    <View style={styles.wrapper}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        bounces={false}
+      >
+        {/* Radius stepper chip */}
+        {showRadius && (
+          <RadiusChip
+            radiusKm={radiusKm!}
+            onDecrement={onRadiusDecrement!}
+            onIncrement={onRadiusIncrement!}
+            minKm={minRadiusKm}
+            maxKm={maxRadiusKm}
+          />
+        )}
 
-      {/* Pay type dropdown */}
-      <DropdownButton
-        buttonRef={payBtnRef}
-        icon={activePayOption.icon}
-        label={activePayOption.label}
-        isActive={payIsNonDefault}
-        isOpen={payOpen}
-        onPress={() =>
-          measureAndOpen(payBtnRef, setPayLayout, setPayOpen, () => setSortOpen(false))
-        }
-      />
+        {/* Separator */}
+        {showRadius && <View style={styles.chipSeparator} />}
 
+        {/* Sort chip */}
+        <FilterChip
+          chipRef={sortChipRef}
+          icon={activeSortOption.icon}
+          label={activeSortOption.label}
+          isActive={sortIsNonDefault}
+          isOpen={sortOpen}
+          onPress={() =>
+            measureAndOpen(sortChipRef, setSortLayout, setSortOpen, () => setPayOpen(false))
+          }
+        />
 
+        {/* Pay type chip */}
+        <FilterChip
+          chipRef={payChipRef}
+          icon={activePayOption.icon}
+          label={activePayOption.label}
+          isActive={payIsNonDefault}
+          isOpen={payOpen}
+          onPress={() =>
+            measureAndOpen(payChipRef, setPayLayout, setPayOpen, () => setSortOpen(false))
+          }
+        />
+
+        {/* Reset chip — only when filters are active */}
+        {hasActiveFilters && onReset && (
+          <ResetChip onPress={onReset} />
+        )}
+      </ScrollView>
 
       {/* Sort dropdown panel */}
       <DropdownPanel
@@ -421,6 +523,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         onSelect={onSortChange}
         onClose={() => setSortOpen(false)}
         title="Sort by"
+        accentColor="#F57C00"
       />
 
       {/* Pay type dropdown panel */}
@@ -432,80 +535,176 @@ export const FilterBar: React.FC<FilterBarProps> = ({
         onSelect={onPayTypeChange}
         onClose={() => setPayOpen(false)}
         title="Pay type"
+        accentColor={Colors.saffron}
       />
     </View>
+  );
+};
+
+// ─── Reset chip ───────────────────────────────────────────────────────────────
+
+const ResetChip: React.FC<{ onPress: () => void }> = ({ onPress }) => {
+  const pressAnim = useRef(new Animated.Value(1)).current;
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() =>
+        Animated.spring(pressAnim, { toValue: 0.9, useNativeDriver: true, friction: 8 }).start()
+      }
+      onPressOut={() =>
+        Animated.spring(pressAnim, { toValue: 1, useNativeDriver: true, friction: 6 }).start()
+      }
+      accessibilityRole="button"
+      accessibilityLabel="Reset all filters"
+    >
+      <Animated.View style={[styles.resetChip, { transform: [{ scale: pressAnim }] }]}>
+        <Ionicons name="close-circle" size={13} color={Colors.red} />
+        <Text style={styles.resetChipText}>Reset</Text>
+      </Animated.View>
+    </Pressable>
   );
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
+  wrapper: {
+    flex: 1,
+  },
+  scrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    paddingRight: 4,
   },
 
-  // ── Trigger button ──
-  dropBtn: {
+  // ── Filter chip ──
+  chip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+    gap: 5,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     borderRadius: Radius.round,
     borderWidth: 1.5,
     borderColor: Colors.gray2,
     backgroundColor: Colors.white,
-    ...Shadow.sm,
+    ...Shadow.xs,
   },
-  dropBtnActive: {
+  chipActive: {
     borderColor: Colors.saffron,
     backgroundColor: Colors.saffronLight,
   },
-  dropBtnOpen: {
-    borderColor: Colors.saffron,
-    backgroundColor: Colors.saffronLight,
-  },
-  dropBtnText: {
+  chipText: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.xs,
     color: Colors.ink2,
   },
-  dropBtnTextActive: {
+  chipTextActive: {
     color: Colors.saffronDark,
+  },
+
+  // ── Radius chip ──
+  radiusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.round,
+    borderWidth: 1.5,
+    borderColor: Colors.saffron,
+    backgroundColor: Colors.saffronLight,
+    ...Shadow.xs,
+  },
+  radiusLabel: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.saffronDark,
+    minWidth: 34,
+    textAlign: 'center',
+  },
+  radiusDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: Colors.saffron,
+    opacity: 0.25,
+    marginHorizontal: 2,
+  },
+
+  // ── Chip separator ──
+  chipSeparator: {
+    width: 1,
+    height: 20,
+    backgroundColor: Colors.gray2,
+    marginHorizontal: 2,
+  },
+
+  // ── Reset chip ──
+  resetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.round,
+    borderWidth: 1.5,
+    borderColor: Colors.redLight,
+    backgroundColor: Colors.redLight,
+  },
+  resetChipText: {
+    fontFamily: FontFamily.bodySemiBold,
+    fontSize: FontSize.xs,
+    color: Colors.red,
   },
 
   // ── Dropdown panel ──
   panel: {
     position: 'absolute',
     backgroundColor: Colors.white,
-    borderRadius: Radius.md,
-    paddingBottom: 6,
+    borderRadius: Radius.lg,
+    paddingBottom: 8,
     ...Shadow.lg,
-    // Subtle border
     borderWidth: 1,
     borderColor: Colors.gray2,
     zIndex: 9999,
+    overflow: 'hidden',
   },
   panelHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 6,
+    paddingTop: 14,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  panelTitleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   panelTitle: {
+    flex: 1,
     fontFamily: FontFamily.headingBold,
     fontSize: FontSize.md,
     color: Colors.ink,
   },
+  panelCloseBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.gray1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   panelDivider: {
     height: 1,
     backgroundColor: Colors.gray2,
-    marginHorizontal: 10,
+    marginHorizontal: 12,
     marginBottom: 4,
+  },
+  panelOptions: {
+    paddingTop: 2,
   },
 
   // ── Option row ──
@@ -513,8 +712,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginHorizontal: 4,
+    paddingVertical: 10,
+    marginHorizontal: 6,
     borderRadius: Radius.sm,
     gap: 10,
   },
@@ -522,9 +721,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.saffronLight,
   },
   optionIconCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -544,5 +743,13 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.gray4,
     marginTop: 1,
+  },
+  checkCircle: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.saffron,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

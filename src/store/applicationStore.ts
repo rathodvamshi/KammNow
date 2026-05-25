@@ -1,7 +1,9 @@
 import { create } from 'zustand';
+import * as Sentry from '@sentry/react-native';
 import type { Application, ApplicationStatus, Job } from '../types';
 import { supabase } from '../services/supabase';
 import { firebaseAuth } from '../services/firebaseAuth';
+import { apiFetch } from '../utils/apiClient';
 
 interface ApplicationState {
   myApplications: Application[];
@@ -11,7 +13,7 @@ interface ApplicationState {
 
   fetchMyApplications: (userId: string) => Promise<void>;
   fetchReceivedApplications: (userId: string) => Promise<void>;
-  applyToJob: (job: Job, applicantId: string) => Promise<void>;
+  applyToJob: (job: Job, applicantId: string, description?: string) => Promise<void>;
   cancelApplication: (applicationId: string) => Promise<void>;
   requestCancellation: (applicationId: string) => Promise<void>;
   updateApplicationStatus: (applicationId: string, status: ApplicationStatus) => Promise<void>;
@@ -38,7 +40,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
       if (error) throw error;
       set({ myApplications: data || [], isLoading: false });
     } catch (error: any) {
-      console.error('Failed to fetch my applications:', error);
+      Sentry.captureException(new Error(`${'Failed to fetch my applications:'} ${error}`));
       set({ error: error.message || 'Failed to fetch applications', isLoading: false });
     }
   },
@@ -46,36 +48,40 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
   fetchReceivedApplications: async (userId: string) => {
     set({ isLoading: true, error: null });
     try {
-      // Using a nested query to find applications where the job's provider_id is the user
-      // Note: Supabase RLS is configured to allow this read.
-      const { data, error } = await supabase
-        .from('job_applications')
-        .select('*, job:jobs!inner(*)')
-        .eq('jobs.provider_id', userId)
-        .eq('is_deleted', false)
-        .order('created_at', { ascending: false });
+      const token = await firebaseAuth.getIdToken();
+      if (!token) throw new Error('Not authenticated');
 
-      if (error) throw error;
+      const response = await apiFetch(`${getApiUrl()}/api/applications/received`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch received applications');
+      }
+
+      const { data } = await response.json();
       set({ receivedApplications: data || [], isLoading: false });
     } catch (error: any) {
-      console.error('Failed to fetch received applications:', error);
+      Sentry.captureException(new Error(`${'Failed to fetch received applications:'} ${error}`));
       set({ error: error.message || 'Failed to fetch received applications', isLoading: false });
     }
   },
 
-  applyToJob: async (job: Job, applicantId: string) => {
+  applyToJob: async (job: Job, applicantId: string, description?: string) => {
     set({ isLoading: true, error: null });
     try {
       const token = await firebaseAuth.getIdToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await fetch(`${getApiUrl()}/api/applications`, {
+      const response = await apiFetch(`${getApiUrl()}/api/applications`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ job_id: job.id })
+        body: JSON.stringify({ job_id: job.id, message: description })
       });
 
       if (!response.ok) {
@@ -93,7 +99,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
         isLoading: false,
       }));
     } catch (error: any) {
-      console.error('applyToJob error:', error);
+      Sentry.captureException(new Error(`${'applyToJob error:'} ${error}`));
       set({ error: error.message || 'Failed to apply', isLoading: false });
     }
   },
@@ -104,7 +110,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
       const token = await firebaseAuth.getIdToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await fetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -120,7 +126,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
         isLoading: false,
       }));
     } catch (error: any) {
-      console.error('cancelApplication error:', error);
+      Sentry.captureException(new Error(`${'cancelApplication error:'} ${error}`));
       set({ error: error.message || 'Failed to cancel', isLoading: false });
     }
   },
@@ -131,7 +137,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
       const token = await firebaseAuth.getIdToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await fetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
+      const response = await apiFetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -149,7 +155,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
         isLoading: false,
       }));
     } catch (error: any) {
-      console.error('requestCancellation error:', error);
+      Sentry.captureException(new Error(`${'requestCancellation error:'} ${error}`));
       set({ error: error.message || 'Failed to request cancellation', isLoading: false });
     }
   },
@@ -160,7 +166,24 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
       const token = await firebaseAuth.getIdToken();
       if (!token) throw new Error('Not authenticated');
 
-      const response = await fetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
+      if (status === 'rejected') {
+        const delResponse = await apiFetch(`${getApiUrl()}/api/applications/${applicationId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        if (!delResponse.ok) throw new Error('Failed to delete rejected application');
+        
+        set((state) => ({
+          myApplications: state.myApplications.filter(app => app.id !== applicationId),
+          receivedApplications: state.receivedApplications.filter(app => app.id !== applicationId),
+          isLoading: false,
+        }));
+        return;
+      }
+
+      const response = await apiFetch(`${getApiUrl()}/api/applications/${applicationId}/status`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -181,7 +204,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
         isLoading: false,
       }));
     } catch (error: any) {
-      console.error('updateApplicationStatus error:', error);
+      Sentry.captureException(new Error(`${'updateApplicationStatus error:'} ${error}`));
       set({ error: error.message || 'Failed to update status', isLoading: false });
     }
   },

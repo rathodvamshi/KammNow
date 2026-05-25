@@ -1,6 +1,7 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
-import MapView, { Marker, type MapPressEvent } from 'react-native-maps';
+import { StyleSheet, Platform } from 'react-native';
+import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT, type Provider, type MapPressEvent } from 'react-native-maps';
+import Constants from 'expo-constants';
 
 interface JobPostMapProps {
   latitude: number;
@@ -8,9 +9,13 @@ interface JobPostMapProps {
   onSelect: (coords: { latitude: number; longitude: number }) => void;
 }
 
+const isExpoGo = Constants.appOwnership === 'expo';
+const MAP_PROVIDER: Provider = isExpoGo ? PROVIDER_DEFAULT : PROVIDER_GOOGLE;
+
 export const JobPostMap: React.FC<JobPostMapProps> = ({ latitude, longitude, onSelect }) => {
   return (
     <MapView
+      provider={MAP_PROVIDER}
       style={styles.map}
       region={{
         latitude,
@@ -19,6 +24,9 @@ export const JobPostMap: React.FC<JobPostMapProps> = ({ latitude, longitude, onS
         longitudeDelta: 0.01,
       }}
       onPress={(event: MapPressEvent) => onSelect(event.nativeEvent.coordinate)}
+      loadingEnabled={true}
+      loadingIndicatorColor="#FF6B00"
+      loadingBackgroundColor="#F8FAFC"
     >
       <Marker coordinate={{ latitude, longitude }} />
     </MapView>

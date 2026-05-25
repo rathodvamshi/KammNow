@@ -163,7 +163,7 @@ export default function AccountSuccessScreen() {
       {/* Background glow */}
       <View style={styles.greenGlow} />
 
-      <SafeAreaView style={styles.safe}>
+      <View style={styles.safe}>
         <View style={styles.topSection}>
           {/* Check icon with rings */}
           <View style={styles.checkWrapper}>
@@ -229,7 +229,7 @@ export default function AccountSuccessScreen() {
           </Pressable>
           <Text style={styles.autoSkipText}>Auto-continuing in a moment...</Text>
         </Animated.View>
-      </SafeAreaView>
+      </View>
     </LinearGradient>
   );
 }

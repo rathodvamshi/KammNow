@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "580339420366",
+    "project_id": "kammnow-ac625",
+    "storage_bucket": "kammnow-ac625.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:580339420366:android:15439a59e3ed8955bf549f",
+        "android_client_info": {
+          "package_name": "com.kaamnow.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJb9E8VZVEEfqAtbIA40FhBaPlwm7RQis"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

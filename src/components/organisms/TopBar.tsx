@@ -8,6 +8,9 @@ import {
   Pressable,
 } from 'react-native';
 import { router } from 'expo-router';
+import { safeGoBack } from '../../utils/navigation';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { Colors, FontFamily, FontSize, Spacing, Shadow } from '../../theme';
 import { useUIStore } from '../../store/uiStore';
 
@@ -36,17 +39,18 @@ export const TopBar: React.FC<TopBarProps> = ({
 }) => {
   const { language, setLanguage } = useUIStore();
   const [showLangMenu, setShowLangMenu] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const currentLang = LANGUAGES.find((l) => l.key === language);
 
   return (
     <>
-      <View style={[styles.topbar, noBorder && styles.topbarNoBorder]}>
+      <View style={[styles.topbar, { paddingTop: Math.max(insets.top, 20) + 12 }, noBorder && styles.topbarNoBorder]}>
         {/* Left: back or logo */}
         {showBack ? (
           <TouchableOpacity
             style={styles.backBtn}
-            onPress={onBack ?? (() => router.back())}
+            onPress={onBack ?? (() => safeGoBack())}
           >
             <Text style={styles.backText}>← {title ?? 'Back'}</Text>
           </TouchableOpacity>

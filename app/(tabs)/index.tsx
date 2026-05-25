@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View,
+  ActivityIndicator,
   Text,
   StyleSheet,
   FlatList,
@@ -19,6 +20,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ExpoLocation from 'expo-location';
@@ -44,6 +46,7 @@ import { FilterBar } from '../../src/components/molecules/FilterBar';
 import { useFilterStore } from '../../src/store/filterStore';
 import { fetchRecommendedJobs } from '../../src/services/api';
 import { RoleSwitcher } from '../../src/components/atoms/RoleSwitcher';
+import { CommonNavbar } from '../../src/components/organisms/CommonNavbar';
 
 const LANGUAGES = [
   { key: 'en' as const, label: 'English', glyph: 'A', native: 'EN', sub: 'English' },
@@ -221,12 +224,13 @@ const StaggeredCard = React.memo(({ children, index, style, activeOpacity, onPre
 });
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
   const { user } = useAuthStore();
   const { lat, lng, locationName } = useLocationStore();
-  const { language, setLanguage, currentRole } = useUIStore();
+  const { language, setLanguage, currentRole, setRole } = useUIStore();
   const { savedAddresses, getActive, isLoaded, loadFromStorage } = useAddressStore();
   const { myApplications, receivedApplications, fetchReceivedApplications, fetchMyApplications, updateApplicationStatus } = useApplicationStore();
-  const { myPostedJobs, fetchMyJobs } = useJobStore();
+  const { myPostedJobs, fetchMyJobs, cachedFeed, setCachedFeed } = useJobStore();
 
   // ── Scroll-driven animations ──────────────────────────────────────────────
   const { height: windowHeight } = useWindowDimensions();
@@ -256,36 +260,56 @@ export default function HomeScreen() {
     extrapolate: 'clamp',
   });
 
-  const animatedTitleMaxHeight = scrollY.interpolate({
-    inputRange: [0, titleStartShrink, titleEndShrink],
-    outputRange: [STICKY_TITLE_ROW_HEIGHT, STICKY_TITLE_ROW_HEIGHT, 0],
-    extrapolate: 'clamp',
-  });
+  
 
   const BOTTOM_NAV_HEIGHT = Platform.OS === 'ios' ? 82 : 62;
 
   const [activeViewRole, setActiveViewRole] = useState(currentRole);
-  const roleFade = useRef(new Animated.Value(1)).current;
+
+  const [isTransitioning, setIsTransitioning] = useState(false);
+  const [transitionTarget, setTransitionTarget] = useState<'seeker' | 'provider'>('seeker');
+  const transitionFade = useRef(new Animated.Value(0)).current;
+  const transitionScale = useRef(new Animated.Value(0.9)).current;
+  const transitionSlide = useRef(new Animated.Value(20)).current;
+
+  const handleRoleSwitchRequest = (role: 'seeker' | 'provider') => {
+    if (role === currentRole || isTransitioning) return;
+    
+    setTransitionTarget(role);
+    setIsTransitioning(true);
+    
+    Animated.parallel([
+      Animated.timing(transitionFade, { toValue: 1, duration: 250, useNativeDriver: true }),
+      Animated.spring(transitionScale, { toValue: 1, friction: 8, tension: 50, useNativeDriver: true }),
+      Animated.timing(transitionSlide, { toValue: 0, duration: 250, useNativeDriver: true }),
+    ]).start(() => {
+      setRole(role);
+      setActiveViewRole(role);
+      
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(transitionFade, { toValue: 0, duration: 350, useNativeDriver: true }),
+          Animated.timing(transitionScale, { toValue: 1.1, duration: 350, useNativeDriver: true }),
+          Animated.timing(transitionSlide, { toValue: -20, duration: 350, useNativeDriver: true }),
+        ]).start(() => {
+          setIsTransitioning(false);
+          transitionScale.setValue(0.9);
+          transitionSlide.setValue(20);
+        });
+      }, 600);
+    });
+  };
+
+  
 
   useEffect(() => {
-    Animated.timing(roleFade, {
-      toValue: 0,
-      duration: 100,
-      useNativeDriver: true,
-    }).start(() => {
-      setActiveViewRole(currentRole);
-      Animated.timing(roleFade, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }).start();
+    
       if (currentRole === 'provider' && user?.id) {
         fetchReceivedApplications(user.id);
         fetchMyJobs(user.id);
       } else if (currentRole === 'seeker' && user?.id) {
         fetchMyApplications(user.id);
       }
-    });
   }, [currentRole]);
 
   const [showLangModal, setShowLangModal] = useState(false);
@@ -568,10 +592,14 @@ export default function HomeScreen() {
 
   // Calculate matching jobs count based on filter matches, not display count.
   useEffect(() => {
-    // If needed, handle filter count matching
-  }, [jobsData]);
+    // Cache the latest successful fetch for offline support
+    if (jobsData && jobsData.length > 0) {
+      setCachedFeed(jobsData);
+    }
+  }, [jobsData, setCachedFeed]);
 
-  const processedJobs = jobsData || [];
+  // Fallback to cachedFeed if currently offline/pending and no data
+  const processedJobs = jobsData || cachedFeed || [];
 
   // Constant suggestions based on matching jobs
   const suggestedJobs = useMemo(() => {
@@ -709,7 +737,7 @@ export default function HomeScreen() {
               styles.sectionHead,
               {
                 opacity: animatedTitleOpacity,
-                maxHeight: animatedTitleMaxHeight,
+                
                 overflow: 'hidden',
               },
             ]}
@@ -727,43 +755,17 @@ export default function HomeScreen() {
         )}
 
         <View style={[styles.combinedFiltersRow, isPinned && styles.combinedFiltersRowPinned]}>
-          <View style={styles.radiusSelector}>
-            <TouchableOpacity
-              style={[styles.radiusStepBtn, radiusKm <= 1 && styles.radiusStepBtnDisabled]}
-              onPress={() => {
-                if (radiusKm > 1) {
-                  setRadiusKm((prev) => prev - 1);
-                  setPage(1);
-                }
-              }}
-              disabled={radiusKm <= 1}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="remove" size={12} color={radiusKm <= 1 ? Colors.gray3 : Colors.saffron} />
-            </TouchableOpacity>
-
-            <Text style={styles.radiusValueText}>{radiusKm} km</Text>
-
-            <TouchableOpacity
-              style={[styles.radiusStepBtn, radiusKm >= 20 && styles.radiusStepBtnDisabled]}
-              onPress={() => {
-                if (radiusKm < 20) {
-                  setRadiusKm((prev) => prev + 1);
-                  setPage(1);
-                }
-              }}
-              disabled={radiusKm >= 20}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add" size={12} color={radiusKm >= 20 ? Colors.gray3 : Colors.saffron} />
-            </TouchableOpacity>
-          </View>
-
           <FilterBar
             sortBy={sortBy}
             payTypeFilter={payTypeFilter}
             onSortChange={(s) => { setSortBy(s); setPage(1); }}
             onPayTypeChange={(t) => { setPayTypeFilter(t); setPage(1); }}
+            radiusKm={radiusKm}
+            onRadiusDecrement={() => { if (radiusKm > 1) { setRadiusKm((prev) => prev - 1); setPage(1); } }}
+            onRadiusIncrement={() => { if (radiusKm < 20) { setRadiusKm((prev) => prev + 1); setPage(1); } }}
+            minRadiusKm={1}
+            maxRadiusKm={20}
+            onReset={() => { resetFilters(); setPage(1); }}
           />
         </View>
       </View>
@@ -775,7 +777,6 @@ export default function HomeScreen() {
     scrollY,
     stickyHeaderY,
     animatedTitleOpacity,
-    animatedTitleMaxHeight,
     radiusKm,
     sortBy,
     payTypeFilter,
@@ -783,6 +784,7 @@ export default function HomeScreen() {
     setPayTypeFilter,
     setRadiusKm,
     setPage,
+    resetFilters,
   ]);
 
   const renderFooter = () => (
@@ -811,7 +813,7 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      <SafeAreaView style={{ backgroundColor: Colors.navy }} />
+      
 
       <View style={styles.scrollHost}>
         {/* ── Single scrollable surface ── */}
@@ -837,37 +839,18 @@ export default function HomeScreen() {
         >
           {/* ── 0: Hero banner ── */}
           <View onLayout={(e) => { bannerHeight.current = e.nativeEvent.layout.height; }}>
-            <LinearGradient
-              colors={activeViewRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#27272A', '#0F0F10']}
-              style={styles.heroBannerPremium}
+                        <LinearGradient
+              colors={activeViewRole === 'seeker' ? ['#1E293B', '#0F172A'] : ['#004DEB', '#0039B3']}
+              style={[styles.heroBannerPremium, { paddingTop: Math.max(insets.top, 10) + 4, paddingBottom: 16 }]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
             >
-              {/* Row 1: Balanced Action Bar (No Brand Title) */}
-              <View style={styles.headerTopRowPremium}>
-                {/* Role Switcher */}
-                <View style={styles.roleSwitcherWrapper}>
-                  <RoleSwitcher />
-                </View>
+              <CommonNavbar />
 
-                {/* Controls Row (Lang Selector + Notification Bell) */}
-                <View style={styles.controlsRowPremium}>
-                  <TouchableOpacity style={styles.langBtnPremium} activeOpacity={0.8} onPress={openLangModal}>
-                    <Ionicons name="globe-outline" size={13} color="rgba(255, 255, 255, 0.85)" style={{ marginRight: 4 }} />
-                    <Text style={styles.langBtnTextPremium}>{currentLang?.native ?? 'EN'}</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.notificationBtnPremium}
-                    activeOpacity={0.8}
-                    onPress={() => router.push('/notifications' as any)}
-                  >
-                    <Ionicons name="notifications-outline" size={15} color="rgba(255, 255, 255, 0.9)" />
-                    <View style={styles.notificationBadgeDot} />
-                  </TouchableOpacity>
-                </View>
+              <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                <RoleSwitcher onSwitchRequest={handleRoleSwitchRequest} />
               </View>
 
-              {/* Row 2: Dedicated Spacious Location Capsule */}
+              {/* Row 2: Location Capsule */}
               <TouchableOpacity
                 style={styles.locationCapsulePremium}
                 activeOpacity={0.85}
@@ -888,9 +871,8 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 </View>
-                <Ionicons name="chevron-down" size={14} color="rgba(255, 255, 255, 0.5)" style={{ marginRight: 2 }} />
+                <Ionicons name="chevron-down" size={16} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
-
             </LinearGradient>
 
             {/* Seeker search bar or spacer */}
@@ -916,7 +898,7 @@ export default function HomeScreen() {
           </View>
 
           {/* Dynamic content wrapper — child[1]: pre-sticky content with role crossfade */}
-          <Animated.View style={{ opacity: roleFade }}>
+          <View>
             {activeViewRole === 'seeker' ? (
               // Seeker: show suggestions only (rest moves to child[2] and child[3])
               suggestedJobs.length > 0 ? (
@@ -1014,10 +996,10 @@ export default function HomeScreen() {
                 {/* Hiring Overview Metric Grid */}
                 <View style={styles.metricsGrid}>
                   {[
-                    { label: 'Active Jobs', value: `${myPostedJobs.filter(j => j.status === 'live').length} Live`, color: Colors.saffron, bg: Colors.saffronLight, icon: 'briefcase' },
-                    { label: 'Applicants', value: `${receivedApplications.length} Total`, color: '#1E88E5', bg: '#E3F2FD', icon: 'people' },
-                    { label: 'Pending Reviews', value: `${receivedApplications.filter(a => a.status === 'pending').length} Review`, color: '#F57C00', bg: '#FFF3E0', icon: 'time' },
-                    { label: 'Hiring Speed', value: '92% Rate', color: '#43A047', bg: '#E8F5E9', icon: 'flash' },
+                    { label: 'Active Jobs', value: `${myPostedJobs.filter(j => j.status === 'active').length} Active`, color: '#92763B', bg: '#F5F1E6', icon: 'briefcase' },
+                    { label: 'Applicants', value: `${receivedApplications.length} Total`, color: '#9A3412', bg: '#FFEDD5', icon: 'people' },
+                    { label: 'Pending Reviews', value: `${receivedApplications.filter(a => a.status === 'pending').length} Review`, color: '#4D5D3B', bg: '#EAF0E1', icon: 'time' },
+                    { label: 'Hiring Speed', value: '92% Rate', color: '#57534E', bg: '#F5F5F4', icon: 'flash' },
                   ].map((metric) => (
                     <View key={metric.label} style={styles.metricCard}>
                       <View style={styles.metricHeader}>
@@ -1033,7 +1015,7 @@ export default function HomeScreen() {
 
                 <TouchableOpacity style={[styles.providerPostCta, Shadow.sm]} activeOpacity={0.85} onPress={() => router.push('/job/post' as any)}>
                   <View style={styles.providerCtaIcon}>
-                    <Ionicons name="add" size={24} color={Colors.white} />
+                    <Ionicons name="add" size={24} color={'#005B5C'} />
                   </View>
                   <Text style={styles.providerCtaText}>Post a New Gig Listing Instantly</Text>
                 </TouchableOpacity>
@@ -1094,7 +1076,7 @@ export default function HomeScreen() {
 
               </View>
             )}
-          </Animated.View>
+          </View>
 
           {/* child[2]: Inline header OR fixed spacer — spacer keeps scroll offset stable when pinned */}
           {activeViewRole === 'seeker' ? (
@@ -1412,22 +1394,6 @@ export default function HomeScreen() {
         mode={promptSheetMode}
         visible={showPromptSheet}
         onClose={() => setShowPromptSheet(false)}
-        onSelectOnMap={() => {
-          setShowPromptSheet(false);
-          router.push('/location/map-picker');
-        }}
-        onSearchManually={() => {
-          setShowPromptSheet(false);
-          router.push('/location/saved-addresses');
-        }}
-        onContinueSaved={() => {
-          setShowPromptSheet(false);
-          if (savedAddresses.length > 0) {
-            const def = savedAddresses.find(a => a.isDefault) || savedAddresses[0];
-            useAddressStore.getState().setActive(def.id);
-            useLocationStore.getState().updateLocation(def.lat, def.lng, def.street || def.area);
-          }
-        }}
         onEnableLocation={async () => {
           if (promptSheetMode === 'gps_off') {
             if (Platform.OS === 'web') {
@@ -1452,7 +1418,6 @@ export default function HomeScreen() {
                   geo.formattedLine2 || geo.area || geo.city || 'Current Location'
                 );
               } else {
-                // Permission denied — let user use saved address or map
                 setShowPromptSheet(false);
                 if (savedAddresses.length === 0) {
                   router.push('/location/saved-addresses');
@@ -1463,12 +1428,32 @@ export default function HomeScreen() {
             }
           }
         }}
-        hasSavedAddresses={savedAddresses.length > 0}
       />
+    
+      {isTransitioning && (
+        <Animated.View style={[StyleSheet.absoluteFill, styles.transitionOverlay, { opacity: transitionFade }]}>
+          <Animated.View style={[styles.transitionContent, { transform: [{ scale: transitionScale }, { translateY: transitionSlide }] }]}>
+            <Animated.View style={styles.transitionIconWrap}>
+              <Ionicons 
+                name={transitionTarget === 'seeker' ? 'person' : 'business'} 
+                size={48} 
+                color={Colors.white} 
+              />
+            </Animated.View>
+            <Text style={styles.transitionTitle}>
+              Switching to {transitionTarget === 'seeker' ? 'Seeker' : 'Provider'}...
+            </Text>
+            <Text style={styles.transitionSub}>
+              {transitionTarget === 'seeker' ? 'Finding opportunities' : 'Loading your workspace'}
+            </Text>
+            <ActivityIndicator size="large" color={Colors.saffron} style={{ marginTop: 24 }} />
+          </Animated.View>
+        </Animated.View>
+      )}
+
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -1545,16 +1530,57 @@ const styles = StyleSheet.create({
   },
   heroBannerPremium: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 18 : 12, // Tight, compact top padding to avoid wasted space
-    paddingBottom: 28, // Compact breathing room with perfect search gap
-    borderBottomLeftRadius: 36, // Sleek modern organic curve
-    borderBottomRightRadius: 36, // Sleek modern organic curve
+    paddingTop: 12, 
+    paddingBottom: 24, 
+    borderBottomLeftRadius: 28, 
+    borderBottomRightRadius: 28, 
     position: 'relative',
     overflow: 'hidden',
-    borderBottomWidth: 1.5,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)', // Dark subtle boundary border
-    boxShadow: "0px 6px 24px rgba(0,0,0,0.12)",
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    boxShadow: "0px 4px 16px rgba(0,0,0,0.1)",
   },
+  
+  controlsRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerRoleSwitcherRow: {
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  transitionOverlay: {
+    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+    zIndex: 9999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  transitionContent: {
+    alignItems: 'center',
+  },
+  transitionIconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  transitionTitle: {
+    fontFamily: FontFamily.headingBold,
+    fontSize: 24,
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  transitionSub: {
+    fontFamily: FontFamily.body,
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.6)',
+  },
+
   headerTopRowPremium: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2037,49 +2063,17 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
     lineHeight: 20,
   },
-  // ── Combined Filters and Radius Selector ──────────────────────────
+  // ── Combined Filters Row ──────────────────────────────────────────
   combinedFiltersRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 14,
-    paddingTop: 0,
+    paddingTop: 2,
     paddingBottom: 10,
-    gap: 8,
   },
   combinedFiltersRowPinned: {
     paddingTop: 4,
-    paddingBottom: 2,
-  },
-  radiusSelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 30,
-    borderRadius: Radius.round,
-    borderWidth: 1.5,
-    borderColor: Colors.gray2,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 4,
-    ...Shadow.xs,
-  },
-  radiusStepBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: Colors.saffronLight,
-  },
-  radiusStepBtnDisabled: {
-    backgroundColor: Colors.gray1,
-  },
-  radiusValueText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: 11,
-    color: Colors.ink,
-    paddingHorizontal: 6,
-    textAlign: 'center',
-    minWidth: 46,
+    paddingBottom: 4,
   },
   emptyState: {
     alignItems: 'center',
@@ -2761,7 +2755,7 @@ const styles = StyleSheet.create({
   },
   providerPostCta: {
     marginHorizontal: 20,
-    backgroundColor: Colors.navy,
+    backgroundColor: '#005B5C',
     borderRadius: Radius.md,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2772,7 +2766,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: Colors.saffron,
+    backgroundColor: Colors.white,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -2798,7 +2792,7 @@ const styles = StyleSheet.create({
   providerViewAll: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.sm,
-    color: Colors.saffron,
+    color: '#004DEB',
   },
   applicantsList: {
     paddingHorizontal: 20,
@@ -2879,8 +2873,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.gray2,
   },
   btnShortlist: {
-    backgroundColor: Colors.saffron,
-    borderColor: Colors.saffron,
+    backgroundColor: '#005B5C',
+    borderColor: '#005B5C',
   },
   btnShortlistText: {
     fontFamily: FontFamily.bodySemiBold,

@@ -182,7 +182,7 @@ export default function PhoneLoginScreen() {
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <SafeAreaView style={styles.flex}>
+      <View style={styles.flex}>
         <ScrollView
           style={styles.flex}
           contentContainerStyle={styles.scrollContent}
@@ -269,7 +269,7 @@ export default function PhoneLoginScreen() {
             </Text>
           </Animated.View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
   );
 }

@@ -1,714 +1,436 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList,
-  TextInput,
-  SafeAreaView,
-  Animated,
-  Alert,
-  Platform,
-  Share,
-  Pressable,
-  ActivityIndicator,
-} from 'react-native';
-import { router } from 'expo-router';
-import { Ionicons, FontAwesome } from '@expo/vector-icons';
+import React, { useRef, useMemo, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, Platform, Alert, TouchableOpacity, ActivityIndicator, FlatList, Animated } from 'react-native';
+import { router, Stack } from 'expo-router';
+import { safeGoBack } from '../../src/utils/navigation';
+import { BlurView } from 'expo-blur';
+import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
+import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import * as ExpoLocation from 'expo-location';
-import { Colors, FontFamily, FontSize, Radius, Shadow, Spacing } from '../../src/theme';
+import { Colors, FontFamily, FontSize, Shadow } from '../../src/theme';
 import { useAddressStore, type SavedAddress } from '../../src/store/addressStore';
 import { useLocationStore } from '../../src/store/locationStore';
 import { formatSavedAddress, reverseGeocode } from '../../src/utils/geocoding';
-import { BottomNav } from '../../src/components/organisms/BottomNav';
+import * as Sentry from '@sentry/react-native';
 import { useUIStore } from '../../src/store/uiStore';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { BottomSheetModal, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 
-const ACCENT_COLOR = '#E91E63'; // Hot Pink / Rose Zepto theme color
-
-const BOTTOM_NAV_PAD = Platform.OS === 'ios' ? 100 : 80;
+const GOOGLE_PLACES_API_KEY =
+  Constants.expoConfig?.android?.config?.googleMaps?.apiKey || 'YOUR_KEY';
 
 export default function SavedAddressesScreen() {
-  const { currentRole } = useUIStore();
-  const { savedAddresses, deleteAddress, setDefault, setActive, activeAddressId, isLoaded, loadFromStorage, addAddress } = useAddressStore();
-  const { updateLocation } = useLocationStore();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMenuAddress, setSelectedMenuAddress] = useState<SavedAddress | null>(null);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [isLocating, setIsLocating] = useState(false);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [isDetecting, setIsDetecting] = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-
+  // Mount animation for Add New Address card
+  const addCardAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (!isLoaded) loadFromStorage();
-    Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    Animated.spring(addCardAnim, { toValue: 1, friction: 7, tension: 40, delay: 200, useNativeDriver: true }).start();
   }, []);
+  
+  // Action menu state
+  const menuSheetRef = useRef<BottomSheetModal>(null);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
 
-  const filteredAddresses = useMemo(() => {
-    let list = [...savedAddresses];
+  const { savedAddresses, setActive, deleteAddress } = useAddressStore();
+  const { updateLocation, detectCurrentLocation, sessionLocationConfirmed } = useLocationStore();
+  const { currentRole } = useUIStore();
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (a) =>
-          a.flatHouse.toLowerCase().includes(q) ||
-          a.area.toLowerCase().includes(q) ||
-          a.city.toLowerCase().includes(q) ||
-          a.street.toLowerCase().includes(q) ||
-          a.pincode.includes(q) ||
-          a.label.includes(q)
+  // Check if we are in initial session setup
+  const isInitialSetup = !sessionLocationConfirmed;
+  const themeColor = currentRole === 'seeker' ? Colors.saffron : '#005B5C';
+  const themeText = currentRole === 'seeker' ? Colors.saffron : '#004DEB';
+
+  const handleClose = () => {
+    if (isInitialSetup) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      return; // Block close during initial setup
+    }
+    safeGoBack();
+  };
+
+  const handleSelectAddress = (addr: SavedAddress) => {
+    setActive(addr.id);
+    updateLocation(addr.lat, addr.lng, addr.flatHouse || addr.area || 'Saved Location');
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    
+    // Close regardless of initial setup because they successfully picked one
+    safeGoBack();
+  };
+
+  const handleCurrentLocation = async () => {
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIsDetecting(true);
+    const success = await detectCurrentLocation();
+    setIsDetecting(false);
+    if (success) {
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      safeGoBack();
+    }
+  };
+
+  const handlePlaceSelect = async (data: any, details: any = null) => {
+    if (!details) return;
+    const { lat, lng } = details.geometry.location;
+
+    try {
+      const geo = await reverseGeocode(lat, lng);
+      // Don't auto-add to saved addresses on mere search, just update location.
+      // Wait, let's keep the user's requirement. "Only after location selection -> Save location"
+      updateLocation(lat, lng, geo.formattedLine2 || geo.area || 'Searched Location');
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      
+      safeGoBack();
+    } catch (err) {
+      Sentry.captureMessage(`Place select geocoding error: ${err}`);
+    }
+  };
+
+  const openMenu = (id: string) => {
+    setSelectedAddressId(id);
+    menuSheetRef.current?.present();
+    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const closeMenu = () => {
+    menuSheetRef.current?.dismiss();
+  };
+
+  const handleEdit = () => {
+    if (selectedAddressId) {
+      closeMenu();
+      router.push(`/location/map-picker?editId=${selectedAddressId}`);
+    }
+  };
+
+  const handleDelete = () => {
+    if (selectedAddressId) {
+      const id = selectedAddressId;
+      closeMenu();
+      Alert.alert(
+        'Delete Address',
+        'Are you sure you want to delete this address?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Delete', 
+            style: 'destructive',
+            onPress: async () => {
+              await deleteAddress(id);
+              if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+          }
+        ]
       );
     }
-
-    // Sort: active / activeAddressId first, then by lastUsed
-    return list.sort((a, b) => {
-      if (a.id === activeAddressId && b.id !== activeAddressId) return -1;
-      if (a.id !== activeAddressId && b.id === activeAddressId) return 1;
-      return b.lastUsed - a.lastUsed;
-    });
-  }, [savedAddresses, searchQuery, activeAddressId]);
-
-  const handleEnableLocation = async () => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setIsLocating(true);
-    try {
-      // 1. Request permission
-      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        if (Platform.OS === 'web') {
-          alert('Location permission denied. Please allow location access in your browser.');
-        } else {
-          Alert.alert('Permission Denied', 'Please enable location permissions in settings to use current location.');
-        }
-        return;
-      }
-
-      // 2. Get current GPS position
-      const loc = await ExpoLocation.getCurrentPositionAsync({ accuracy: ExpoLocation.Accuracy.Balanced });
-      const { latitude, longitude } = loc.coords;
-
-      // 3. Reverse geocode to get address details
-      const geo = await reverseGeocode(latitude, longitude);
-
-      // 4. Save as a new address in the store
-      const savedId = await addAddress({
-        label: 'other',
-        flatHouse: geo.flatHouse || '',
-        floor: '',
-        street: geo.street,
-        area: geo.area,
-        landmark: geo.landmark || '',
-        city: geo.city,
-        state: geo.state,
-        pincode: geo.pincode,
-        lat: latitude,
-        lng: longitude,
-        receiverName: '',
-        receiverPhone: '',
-        notes: '',
-        isDefault: false,
-      });
-
-      // 5. Set as active address and update location store
-      setActive(savedId);
-      updateLocation(latitude, longitude, geo.formattedLine2 || geo.area || 'Current Location');
-
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      // 6. Navigate back to home
-      router.replace('/(tabs)');
-    } catch (err) {
-      console.warn('handleEnableLocation error:', err);
-      if (Platform.OS === 'web') {
-        alert('Unable to retrieve your current location. Please try again.');
-      } else {
-        Alert.alert('Error', 'Unable to retrieve your current location. Please try again.');
-      }
-    } finally {
-      setIsLocating(false);
-    }
-  };
-
-  const handleSelect = (addr: SavedAddress) => {
-    setActive(addr.id);
-    if (Platform.OS !== 'web') Haptics.selectionAsync();
-    router.replace('/(tabs)');
-  };
-
-  const handleShare = async (addr: SavedAddress) => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const fullAddr = formatSavedAddress(addr);
-    try {
-      await Share.share({
-        message: `Here is my address:\n${fullAddr}`,
-      });
-    } catch (error) {
-      console.log('Error sharing address:', error);
-    }
-  };
-
-  const handleAddressMenu = (addr: SavedAddress) => {
-    if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setSelectedMenuAddress(addr);
-    setMenuVisible(true);
   };
 
   const getLabelIcon = (label: string) => {
     switch (label.toLowerCase()) {
-      case 'home':
-        return 'home-outline';
-      case 'work':
-        return 'business-outline';
-      default:
-        return 'location-outline';
+      case 'home': return 'home-outline';
+      case 'work': return 'business-outline';
+      default: return 'location-outline';
     }
   };
 
   return (
-    <View style={styles.screenRoot}>
-    <SafeAreaView style={styles.screen}>
-      <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)'))}
-            style={styles.backBtn}
-          >
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <Stack.Screen options={{ gestureEnabled: !isInitialSetup }} />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        {!isInitialSetup && (
+          <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={24} color={Colors.ink} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Select Location</Text>
-        </View>
+        )}
+        <Text style={[styles.title, isInitialSetup && { marginLeft: 16 }]}>Select Location</Text>
+      </View>
 
-        {/* Search Input */}
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={20} color={Colors.gray4} style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search Address"
-              placeholderTextColor={Colors.gray4}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
-
-        <FlatList
-          data={filteredAddresses}
-          keyExtractor={(item) => item.id}
-          showsVerticalScrollIndicator={false}
-          ListHeaderComponent={
-            <View style={{ gap: 16, marginBottom: 24 }}>
-              {/* Option Cards block */}
-              <View style={styles.optionsBlock}>
-                {/* 1. Use My Current Location */}
-                <View style={[styles.optionItem, { borderBottomWidth: 1, borderBottomColor: Colors.gray2 }]}>
-                  <View style={styles.optionLeft}>
-                    <Ionicons name="locate" size={22} color={ACCENT_COLOR} />
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                      <Text style={styles.currentLocTitle}>Use my Current Location</Text>
-                      <Text style={styles.currentLocSub}>Enable your current location for better services</Text>
-                    </View>
-                  </View>
-                  <TouchableOpacity style={styles.enableBtn} onPress={handleEnableLocation} disabled={isLocating}>
-                    {isLocating ? (
-                      <ActivityIndicator size="small" color={ACCENT_COLOR} />
-                    ) : (
-                      <Text style={styles.enableBtnText}>Enable</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-
-                {/* 2. Add New Address */}
-                <TouchableOpacity
-                  style={styles.optionItem}
-                  activeOpacity={0.8}
-                  onPress={() => router.push('/location/map-picker')}
-                >
-                  <View style={styles.optionLeft}>
-                    <Ionicons name="add" size={24} color={ACCENT_COLOR} />
-                    <Text style={styles.addNewAddrText}>Add New Address</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={Colors.gray4} />
-                </TouchableOpacity>
+      <View style={styles.sheetContent}>
+        <View style={[styles.searchContainer, searchFocused && { borderColor: themeColor, borderWidth: 1 }]}>
+          <GooglePlacesAutocomplete
+            placeholder="Search Address"
+            fetchDetails={true}
+            onPress={handlePlaceSelect}
+            query={{
+              key: GOOGLE_PLACES_API_KEY,
+              language: 'en',
+              components: 'country:in',
+            }}
+            styles={{
+              textInputContainer: styles.autocompleteContainer,
+              textInput: styles.autocompleteInput,
+              listView: styles.autocompleteListView,
+            }}
+            renderLeftButton={() => (
+              <View style={styles.searchIconWrap}>
+                <Ionicons name="search" size={20} color={searchFocused ? themeColor : Colors.gray4} />
               </View>
+            )}
+            textInputProps={{
+              placeholderTextColor: Colors.gray4,
+              onFocus: () => setSearchFocused(true),
+              onBlur: () => setSearchFocused(false),
+            }}
+          />
+        </View>
 
-
-              {/* Saved Addresses header — always visible */}
-              <Text style={styles.sectionHeader}>Saved Addresses</Text>
-
-              {/* Empty state when no addresses saved */}
-              {savedAddresses.length === 0 && (
-                <View style={styles.emptyState}>
-                  <Ionicons name="location-outline" size={48} color={Colors.gray3} />
-                  <Text style={styles.emptyTitle}>No saved addresses yet</Text>
-                  <Text style={styles.emptySub}>Add a new address or use your current location to get started</Text>
-                </View>
-              )}
+        {/* Current Location Card */}
+        <View style={styles.card}>
+          <View style={styles.cardLeft}>
+            <Ionicons name="locate" size={24} color="#FF2C65" />
+            <View>
+              <Text style={[styles.cardTitle, { color: '#FF2C65' }]}>Use my Current Location</Text>
+              <Text style={styles.cardSub}>Enable your current location for better services</Text>
             </View>
-          }
-          renderItem={({ item, index }) => (
-            <View style={styles.addressListWrapper}>
-              {index === 0 && <View style={styles.listTopRounded} />}
-              <View style={styles.addressCard}>
-                <TouchableOpacity
-                  style={styles.cardPressable}
-                  onPress={() => handleSelect(item)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={getLabelIcon(item.label) as any}
-                    size={22}
-                    color={Colors.ink}
-                    style={{ marginTop: 2 }}
-                  />
-                  <View style={{ flex: 1, marginLeft: 12 }}>
-                    <View style={styles.labelRow}>
-                      <Text style={styles.addressLabel}>{item.label}</Text>
-                      {item.id === activeAddressId && (
-                        <View style={styles.selectedBadge}>
-                          <Text style={styles.selectedBadgeText}>Selected</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.addressText} numberOfLines={2}>
-                      {formatSavedAddress(item)}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={[styles.enableBtn, { borderColor: '#FF2C65' }]} onPress={handleCurrentLocation}>
+            {isDetecting ? <ActivityIndicator size="small" color="#FF2C65" /> : <Text style={[styles.enableBtnText, { color: '#FF2C65' }]}>Enable</Text>}
+          </TouchableOpacity>
+        </View>
 
-                {/* Right side actions */}
-                <View style={styles.cardActions}>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleShare(item)}>
-                    <Ionicons name="share-outline" size={20} color={Colors.ink2} />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionBtn} onPress={() => handleAddressMenu(item)}>
-                    <Ionicons name="ellipsis-vertical" size={20} color={Colors.ink2} />
-                  </TouchableOpacity>
-                </View>
+        <View style={styles.divider} />
+
+        {/* Add New Address Card */}
+        <Animated.View style={{ opacity: addCardAnim, transform: [{ translateY: addCardAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }}>
+          <TouchableOpacity style={styles.cardRow} activeOpacity={0.7} onPress={() => router.push('/location/map-picker')}>
+            <View style={styles.cardLeftRow}>
+              <View style={{ width: 36, height: 36, borderRadius: 12, backgroundColor: '#FFF0F4', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="add" size={22} color="#FF2C65" />
               </View>
+              <Text style={[styles.cardTextRow, { color: '#FF2C65' }]}>Add New Address</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.gray4} />
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
 
-              {/* Dotted Divider */}
-              {index < filteredAddresses.length - 1 && (
-                <View style={styles.dottedDivider} />
-              )}
-              {index === filteredAddresses.length - 1 && <View style={styles.listBottomRounded} />}
+      <View style={styles.recentHeader}>
+        <Text style={styles.recentHeaderText}>Saved Addresses</Text>
+      </View>
+
+      <FlatList
+          style={styles.listContainer}
+          data={savedAddresses}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={{ paddingBottom: 40 }}
+          renderItem={({ item, index }) => (
+            <View style={[styles.savedCard, index !== 0 && styles.savedCardBorder]}>
+              <TouchableOpacity style={styles.savedCardContent} onPress={() => handleSelectAddress(item)} activeOpacity={0.7}>
+                <View style={styles.savedIconBox}>
+                  <Ionicons name={getLabelIcon(item.label)} size={24} color={Colors.ink} />
+                </View>
+                <View style={styles.savedDetails}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={styles.savedLabel}>{item.label.charAt(0).toUpperCase() + item.label.slice(1)}</Text>
+                    {useAddressStore.getState().activeAddressId === item.id && (
+                      <View style={styles.selectedBadge}>
+                        <Text style={styles.selectedBadgeText}>Selected</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.savedAddressText} numberOfLines={2}>{formatSavedAddress(item)}</Text>
+                </View>
+              </TouchableOpacity>
+
+              <View style={styles.actionsBox}>
+                <TouchableOpacity onPress={() => {/* Handle Share */}} style={styles.iconBtn}>
+                  <Ionicons name="share-outline" size={20} color={Colors.gray4} />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => openMenu(item.id)} style={styles.iconBtn}>
+                  <Ionicons name="ellipsis-vertical" size={20} color={Colors.gray4} />
+                </TouchableOpacity>
+              </View>
             </View>
           )}
-          contentContainerStyle={[
-            styles.scrollContent,
-            currentRole === 'seeker' && { paddingBottom: BOTTOM_NAV_PAD },
-          ]}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>You haven't saved any addresses yet.</Text>
+            </View>
+          )}
         />
 
-        {/* Custom Premium Options Bottom Sheet */}
-        {menuVisible && selectedMenuAddress && (
-          <View style={styles.menuOverlay}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuVisible(false)} />
-            <View style={styles.menuSheet}>
-              <View style={styles.sheetHeader}>
-                <View style={styles.sheetHandle} />
-                <Text style={styles.sheetTitle}>
-                  {selectedMenuAddress.label.toUpperCase()} OPTIONS
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.sheetOption}
-                activeOpacity={0.7}
-                onPress={() => {
-                  setMenuVisible(false);
-                  router.push({
-                    pathname: '/location/address-form',
-                    params: {
-                      editId: selectedMenuAddress.id,
-                      lat: selectedMenuAddress.lat,
-                      lng: selectedMenuAddress.lng,
-                      street: selectedMenuAddress.street,
-                      area: selectedMenuAddress.area,
-                      landmark: selectedMenuAddress.landmark,
-                      city: selectedMenuAddress.city,
-                      state: selectedMenuAddress.state,
-                      pincode: selectedMenuAddress.pincode,
-                      label: selectedMenuAddress.label,
-                    },
-                  });
-                }}
-              >
-                <Ionicons name="create-outline" size={22} color={ACCENT_COLOR} />
-                <Text style={styles.sheetOptionText}>Edit Address</Text>
-              </TouchableOpacity>
-
-              <View style={styles.sheetDivider} />
-
-              <TouchableOpacity
-                style={styles.sheetOption}
-                activeOpacity={0.7}
-                onPress={() => {
-                  const addrId = selectedMenuAddress.id;
-                  const addrLabel = selectedMenuAddress.label;
-                  setMenuVisible(false);
-                  setSelectedMenuAddress(null);
-
-                  if (Platform.OS === 'web') {
-                    // Small timeout so the sheet closes before confirm dialog appears
-                    setTimeout(() => {
-                      if (window.confirm(`Delete "${addrLabel}" address?`)) {
-                        deleteAddress(addrId);
-                        if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                      }
-                    }, 150);
-                  } else {
-                    Alert.alert(
-                      'Delete Address',
-                      `Delete "${addrLabel}" address? This cannot be undone.`,
-                      [
-                        { text: 'Cancel', style: 'cancel' },
-                        {
-                          text: 'Delete',
-                          style: 'destructive',
-                          onPress: () => {
-                            deleteAddress(addrId);
-                            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                          },
-                        },
-                      ]
-                    );
-                  }
-                }}
-              >
-                <Ionicons name="trash-outline" size={22} color="#EF4444" />
-                <Text style={[styles.sheetOptionText, { color: '#EF4444' }]}>Delete Address</Text>
-              </TouchableOpacity>
-
-              <View style={styles.sheetDivider} />
-
-              <TouchableOpacity
-                style={[styles.sheetOption, styles.cancelOption]}
-                activeOpacity={0.7}
-                onPress={() => setMenuVisible(false)}
-              >
-                <Text style={styles.sheetCancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+      {/* Action Menu Bottom Sheet */}
+      <BottomSheetModal
+        ref={menuSheetRef}
+        snapPoints={['20%']}
+        index={0}
+        backdropComponent={(props) => (
+          <BottomSheetBackdrop {...props} opacity={0.5} disappearsOnIndex={-1} appearsOnIndex={0} />
         )}
-      </Animated.View>
+      >
+        <View style={styles.menuContainer}>
+          <TouchableOpacity style={styles.menuItem} onPress={handleEdit}>
+            <Ionicons name="create-outline" size={24} color={Colors.ink} />
+            <Text style={styles.menuText}>Edit Address</Text>
+          </TouchableOpacity>
+          <View style={styles.menuDivider} />
+          <TouchableOpacity style={styles.menuItem} onPress={handleDelete}>
+            <Ionicons name="trash-outline" size={24} color={Colors.red} />
+            <Text style={[styles.menuText, { color: Colors.red }]}>Delete Address</Text>
+          </TouchableOpacity>
+        </View>
+      </BottomSheetModal>
     </SafeAreaView>
-    {currentRole === 'seeker' && <BottomNav />}
-    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screenRoot: { flex: 1, backgroundColor: '#F5F6F8' },
-  screen: { flex: 1, backgroundColor: '#F5F6F8' },
-  container: { flex: 1 },
-
-  // Header
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingVertical: 12,
-    backgroundColor: '#F5F6F8',
   },
   backBtn: {
-    width: 40,
-    height: 40,
+    padding: 8,
     borderRadius: 20,
-    backgroundColor: Colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-    ...Shadow.sm,
   },
-  headerTitle: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['4xl'],
-    color: Colors.ink,
-  },
-
-  // Search
-  searchRow: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-  },
-  searchBox: {
+  title: { fontFamily: FontFamily.headingBold, fontSize: FontSize.lg, color: Colors.ink },
+  
+  sheetContent: { paddingHorizontal: 20, paddingTop: 12 },
+  
+  searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.gray2,
+  },
+  searchIconWrap: { paddingLeft: 16, paddingTop: 14 },
+  autocompleteContainer: { flex: 1, backgroundColor: 'transparent' },
+  autocompleteInput: {
+    backgroundColor: 'transparent',
+    fontFamily: FontFamily.body,
+    fontSize: FontSize.md,
+    color: Colors.ink,
+    paddingVertical: 14,
+    height: 50,
+  },
+  autocompleteListView: {
+    position: 'absolute',
+    top: 55,
+    left: 0,
+    right: 0,
     backgroundColor: Colors.white,
     borderRadius: 12,
-    paddingHorizontal: 16,
-    height: 52,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    ...Shadow.sm,
-  },
-  searchInput: {
-    flex: 1,
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.md,
-    color: Colors.ink,
+    ...Shadow.md,
   },
 
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 40,
-  },
-
-  // Options block
-  optionsBlock: {
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    overflow: 'hidden',
-    ...Shadow.sm,
-  },
-  optionItem: {
+  card: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 12,
   },
-  optionLeft: {
+  cardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    gap: 12,
   },
-  currentLocTitle: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: ACCENT_COLOR,
-  },
-  currentLocSub: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.gray4,
-    marginTop: 2,
-    lineHeight: 18,
-  },
+  cardTitle: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, marginBottom: 2 },
+  cardSub: { fontFamily: FontFamily.body, fontSize: 13, color: Colors.gray4, paddingRight: 10 },
   enableBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: ACCENT_COLOR,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  enableBtnText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
-    color: ACCENT_COLOR,
-  },
-  addNewAddrText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: ACCENT_COLOR,
-    marginLeft: 12,
-  },
+  enableBtnText: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.sm },
 
-  // Whatsapp
-  whatsappCard: {
+  cardRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    ...Shadow.sm,
-  },
-  whatsappText: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    marginLeft: 12,
-  },
-
-  // Saved Addresses
-  sectionHeader: {
-    fontFamily: FontFamily.headingBold,
-    fontSize: FontSize['2xl'],
-    color: Colors.ink,
-    marginTop: 8,
-  },
-
-  // Empty state
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 8,
-  },
-  emptyTitle: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.lg,
-    color: Colors.ink,
-    marginTop: 8,
-  },
-  emptySub: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.gray4,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-
-  // Address List (grouped in white capsule card with dotted dividers)
-  addressListWrapper: {
-    backgroundColor: Colors.white,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  listTopRounded: {
-    height: 16,
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderTopWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  listBottomRounded: {
-    height: 16,
-    backgroundColor: Colors.white,
-    borderBottomLeftRadius: 16,
-    borderBottomRightRadius: 16,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  addressCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: Colors.white,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 24,
   },
-  cardPressable: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  divider: {
+    height: 1,
+    backgroundColor: Colors.gray1,
+    marginHorizontal: 16,
+    marginBottom: 12,
+  },
+  cardLeftRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardTextRow: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.ink },
+
+  recentHeader: { paddingHorizontal: 20, marginBottom: 12 },
+  recentHeaderText: { fontFamily: FontFamily.headingBold, fontSize: FontSize.lg, color: Colors.ink },
+  listContainer: {
+    backgroundColor: Colors.white,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    overflow: 'hidden',
     flex: 1,
   },
-  labelRow: {
+  savedCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    padding: 16,
+    justifyContent: 'space-between',
   },
-  addressLabel: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.md,
-    color: Colors.ink,
-    textTransform: 'capitalize',
+  savedCardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
   },
+  savedCardBorder: { borderTopWidth: 1, borderTopColor: Colors.gray1 },
+  savedIconBox: { marginRight: 16 },
+  savedDetails: { flex: 1 },
+  savedLabel: { fontFamily: FontFamily.bodySemiBold, fontSize: FontSize.md, color: Colors.ink },
+  savedAddressText: { fontFamily: FontFamily.body, fontSize: FontSize.sm, color: Colors.gray4, marginTop: 4, lineHeight: 20 },
+  
   selectedBadge: {
-    backgroundColor: '#E6F4EA',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 6,
     paddingVertical: 2,
+    borderRadius: 4,
   },
   selectedBadgeText: {
     fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.xs,
-    color: '#137333',
+    fontSize: 10,
+    color: '#0284C7',
   },
-  addressText: {
-    fontFamily: FontFamily.body,
-    fontSize: FontSize.sm,
-    color: Colors.gray4,
-    marginTop: 4,
-    lineHeight: 18,
-    paddingRight: 10,
-  },
-  cardActions: {
+  actionsBox: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 4,
+    gap: 8,
   },
-  actionBtn: {
-    padding: 4,
+  iconBtn: {
+    padding: 8,
   },
-  dottedDivider: {
-    height: 1,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderStyle: 'dashed',
-    marginHorizontal: 16,
+  emptyContainer: { padding: 24, alignItems: 'center' },
+  emptyText: { fontFamily: FontFamily.body, fontSize: FontSize.md, color: Colors.gray4, textAlign: 'center' },
+  
+  menuContainer: {
+    padding: 16,
+    paddingTop: 8,
   },
-
-  // Premium Custom Menu sheet styles
-  menuOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-    zIndex: 2000,
-  },
-  menuSheet: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  sheetHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  sheetHandle: {
-    width: 38,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#CBD5E1',
-    marginBottom: 16,
-  },
-  sheetTitle: {
-    fontFamily: FontFamily.bodySemiBold,
-    fontSize: FontSize.sm,
-    color: Colors.gray4,
-    letterSpacing: 1.2,
-  },
-  sheetOption: {
+  menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 16,
     gap: 12,
   },
-  sheetOptionText: {
-    fontFamily: FontFamily.bodyMedium,
-    fontSize: FontSize.lg,
-    color: Colors.ink,
-  },
-  sheetDivider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-  },
-  cancelOption: {
-    justifyContent: 'center',
-    marginTop: 8,
-    paddingVertical: 14,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-  },
-  sheetCancelText: {
+  menuText: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: FontSize.md,
-    color: Colors.gray4,
+    color: Colors.ink,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: Colors.gray1,
   },
 });
