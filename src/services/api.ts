@@ -35,9 +35,17 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error?.response?.status === 401) {
-      // Token expired — clear and redirect to login
+      // Token expired or invalid — clear the real session keys and trigger logout
       try {
-        await SecureStore.deleteItemAsync('auth_token');
+        await SecureStore.deleteItemAsync('kn_firebase_uid');
+        await SecureStore.deleteItemAsync('kn_user_id');
+      } catch {
+        // ignore SecureStore errors
+      }
+      // Trigger auth store logout (clears Zustand state)
+      try {
+        const { useAuthStore } = await import('../store/authStore');
+        await useAuthStore.getState().logout();
       } catch {
         // ignore
       }

@@ -70,10 +70,10 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   setPermission: (hasPermission) => {
     set({ hasPermission });
-      AsyncStorage.setItem(STORAGE_KEY_PERM, String(hasPermission));
     try {
+      AsyncStorage.setItem(STORAGE_KEY_PERM, String(hasPermission));
     } catch (e) {
-      Sentry.captureMessage(`${'LocationStore: setPermission persist error:'} ${e}`);
+      Sentry.captureMessage(`LocationStore: setPermission persist error: ${e}`);
     }
   },
 
@@ -81,12 +81,12 @@ export const useLocationStore = create<LocationState>((set) => ({
 
   clearLocation: () => {
     set({ lat: null, lng: null, locationName: null, accuracy: null });
+    try {
       AsyncStorage.removeItem(STORAGE_KEY_LAT);
       AsyncStorage.removeItem(STORAGE_KEY_LNG);
       AsyncStorage.removeItem(STORAGE_KEY_NAME);
-    try {
     } catch (e) {
-      Sentry.captureMessage(`${'LocationStore: clearLocation persist error:'} ${e}`);
+      Sentry.captureMessage(`LocationStore: clearLocation persist error: ${e}`);
     }
   },
 
@@ -108,14 +108,14 @@ export const useLocationStore = create<LocationState>((set) => ({
         return false;
       }
 
+      // Use Balanced accuracy — faster fix, still precise enough for job radius matching
       let location = null;
       try {
         location = await ExpoLocation.getCurrentPositionAsync({
-          accuracy: ExpoLocation.Accuracy.Highest,
-          timeInterval: 5000,
+          accuracy: ExpoLocation.Accuracy.Balanced,
         });
-      } catch (err) {
-        // Fallback for weak signal or timeouts
+      } catch {
+        // Fallback to last known position for weak signal situations
         location = await ExpoLocation.getLastKnownPositionAsync();
         if (!location) {
           throw new Error('Unable to get location. Please ensure you have a clear view of the sky or try again.');
@@ -123,16 +123,17 @@ export const useLocationStore = create<LocationState>((set) => ({
       }
 
       const { latitude, longitude, accuracy } = location.coords;
-      let locName = 'Current Location';
 
+      // Import reverseGeocode here to avoid circular dependency — use the full geocoding util
+      // which prefers Google API → Expo fallback → OSM Nominatim fallback
+      let locName = 'Current Location';
       try {
-        const geocode = await ExpoLocation.reverseGeocodeAsync({ latitude, longitude });
-        if (geocode && geocode.length > 0) {
-          const geo = geocode[0];
-          locName = geo.name || geo.street || geo.city || geo.region || locName;
-        }
+        const { reverseGeocode } = await import('../utils/geocoding');
+        const geo = await reverseGeocode(latitude, longitude);
+        // Use the most specific available area name
+        locName = geo.area || geo.city || geo.formattedLine2 || 'Current Location';
       } catch (geoErr) {
-        Sentry.captureMessage(`Reverse geocode failed: ${geoErr}`);
+        Sentry.captureMessage(`Reverse geocode failed in detectCurrentLocation: ${geoErr}`);
       }
 
       useLocationStore.getState().updateLocation(latitude, longitude, locName, accuracy ?? undefined);
@@ -140,7 +141,7 @@ export const useLocationStore = create<LocationState>((set) => ({
       return true;
     } catch (error: any) {
       Sentry.captureException(error);
-      Alert.alert('Location Error', error.message || 'Could not detect location.');
+      Alert.alert('Location Error', error.message || 'Could not detect location. Please try again.');
       set({ isDetecting: false });
       return false;
     }

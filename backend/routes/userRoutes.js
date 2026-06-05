@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
+const addressController = require('../controllers/addressController');
 const { profileSchema } = require('../validators/user');
 
 const validateProfile = (req, res, next) => {
@@ -12,10 +13,15 @@ const validateProfile = (req, res, next) => {
   next();
 };
 
-// These routes will be prefixed with /api/users
+// ── Profile ──────────────────────────────────────────────────────────────────
 router.post('/profile', validateProfile, userController.upsertProfile);
-router.post('/location', userController.updateLocation);
-router.get('/addresses', userController.getAddresses);
 router.post('/heartbeat', userController.updateHeartbeat);
+router.post('/location', userController.updateLocation);
+
+// ── Saved Addresses (full CRUD) ───────────────────────────────────────────────
+router.get('/addresses', addressController.getAddresses);
+router.post('/addresses', addressController.addAddress);
+router.put('/addresses/:id', addressController.editAddress);
+router.delete('/addresses/:id', addressController.deleteAddress);
 
 module.exports = router;

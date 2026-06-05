@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from './authStore';
-import { supabase } from '../services/supabase';
 import { api } from '../services/api';
 
 const MAX_ADDRESSES = 20;
@@ -153,27 +152,34 @@ export const useAddressStore = create<AddressState>((set, get) => ({
     let newAddr: SavedAddress = { ...addr, id: savedId, createdAt: now, lastUsed: now };
 
     if (user) {
-      if (addr.isDefault) {
-        await supabase.from('user_location').update({ is_default: false }).eq('user_id', user.id);
-      }
-      const { data, error } = await supabase.from('user_location').insert({
-        user_id: user.id,
-        latitude: addr.lat,
-        longitude: addr.lng,
-        address: addr.street,
-        city: addr.city,
-        state: addr.state,
-        pincode: addr.pincode,
-        label: addr.label,
-        flat_house: addr.flatHouse,
-        area: addr.area,
-        landmark: addr.landmark,
-        is_default: addr.isDefault
-      }).select().single();
+      try {
+        // Clear existing default via backend if this is the new default
+        if (addr.isDefault) {
+          // Optimistically clear defaults locally; backend will handle DB
+        }
 
-      if (data && !error) {
-        savedId = data.id;
-        newAddr.id = savedId;
+        const response = await api.post('/users/addresses', {
+          latitude: addr.lat,
+          longitude: addr.lng,
+          address: addr.street,
+          city: addr.city,
+          state: addr.state,
+          pincode: addr.pincode,
+          label: addr.label,
+          flat_house: addr.flatHouse,
+          floor: addr.floor || null,
+          area: addr.area,
+          landmark: addr.landmark || null,
+          is_default: addr.isDefault,
+        });
+
+        if (response.data?.success && response.data?.address?.id) {
+          savedId = response.data.address.id;
+          newAddr.id = savedId;
+        }
+      } catch (e) {
+        // Backend unavailable — continue with local-only ID (will sync on next load)
+        console.warn('[AddressStore] Backend add failed, using local ID:', e);
       }
     }
 
@@ -194,33 +200,32 @@ export const useAddressStore = create<AddressState>((set, get) => ({
     const user = useAuthStore.getState().user;
     
     if (user && !id.startsWith('addr_')) {
-      // It's a Supabase UUID
-      if (partial.isDefault) {
-        await supabase.from('user_location').update({ is_default: false }).eq('user_id', user.id);
-      }
-      
-      const updatePayload: any = {};
-      if (partial.lat !== undefined) updatePayload.latitude = partial.lat;
-      if (partial.lng !== undefined) updatePayload.longitude = partial.lng;
-      if (partial.street !== undefined) updatePayload.address = partial.street;
-      if (partial.city !== undefined) updatePayload.city = partial.city;
-      if (partial.state !== undefined) updatePayload.state = partial.state;
-      if (partial.pincode !== undefined) updatePayload.pincode = partial.pincode;
-      if (partial.label !== undefined) updatePayload.label = partial.label;
-      if (partial.flatHouse !== undefined) updatePayload.flat_house = partial.flatHouse;
-      if (partial.area !== undefined) updatePayload.area = partial.area;
-      if (partial.landmark !== undefined) updatePayload.landmark = partial.landmark;
-      if (partial.isDefault !== undefined) updatePayload.is_default = partial.isDefault;
-      updatePayload.updated_at = new Date().toISOString();
+      try {
+        const updatePayload: any = {};
+        if (partial.lat !== undefined) updatePayload.latitude = partial.lat;
+        if (partial.lng !== undefined) updatePayload.longitude = partial.lng;
+        if (partial.street !== undefined) updatePayload.address = partial.street;
+        if (partial.city !== undefined) updatePayload.city = partial.city;
+        if (partial.state !== undefined) updatePayload.state = partial.state;
+        if (partial.pincode !== undefined) updatePayload.pincode = partial.pincode;
+        if (partial.label !== undefined) updatePayload.label = partial.label;
+        if (partial.flatHouse !== undefined) updatePayload.flat_house = partial.flatHouse;
+        if (partial.floor !== undefined) updatePayload.floor = partial.floor;
+        if (partial.area !== undefined) updatePayload.area = partial.area;
+        if (partial.landmark !== undefined) updatePayload.landmark = partial.landmark;
+        if (partial.isDefault !== undefined) updatePayload.is_default = partial.isDefault;
 
-      await supabase.from('user_location').update(updatePayload).eq('id', id);
+        await api.put(`/users/addresses/${id}`, updatePayload);
+      } catch (e) {
+        console.warn('[AddressStore] Backend edit failed, updating locally:', e);
+      }
     }
 
     const state = get();
     let updated = state.savedAddresses.map((a) => a.id === id ? { ...a, ...partial } : a);
     
     if (partial.isDefault) {
-       updated = updated.map(a => a.id !== id ? { ...a, isDefault: false } : a);
+      updated = updated.map(a => a.id !== id ? { ...a, isDefault: false } : a);
     }
 
     set({ savedAddresses: updated });
@@ -231,7 +236,11 @@ export const useAddressStore = create<AddressState>((set, get) => ({
     const user = useAuthStore.getState().user;
     
     if (user && !id.startsWith('addr_')) {
-      await supabase.from('user_location').update({ is_deleted: true }).eq('id', id);
+      try {
+        await api.delete(`/users/addresses/${id}`);
+      } catch (e) {
+        console.warn('[AddressStore] Backend delete failed, removing locally:', e);
+      }
     }
 
     const state = get();

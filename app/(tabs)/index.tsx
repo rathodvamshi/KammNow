@@ -175,33 +175,49 @@ const StaggeredCard = React.memo(({ children, index, style, activeOpacity, onPre
   onPress: () => void;
 }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const translateYAnim = useRef(new Animated.Value(20)).current;
-  const scaleAnim = useRef(new Animated.Value(0.92)).current;
+  const translateYAnim = useRef(new Animated.Value(24)).current;
+  const scaleAnim = useRef(new Animated.Value(0.90)).current;
+  // Subtle glowing border pulse
+  const glowAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    const delay = Math.min(index * 90, 450);
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 400,
-        delay: Math.min(index * 90, 450),
+        duration: 420,
+        delay,
         useNativeDriver: true,
       }),
       Animated.spring(translateYAnim, {
         toValue: 0,
         friction: 7,
-        tension: 55,
-        delay: Math.min(index * 90, 450),
+        tension: 52,
+        delay,
         useNativeDriver: true,
       }),
       Animated.spring(scaleAnim, {
         toValue: 1,
         friction: 7,
-        tension: 55,
-        delay: Math.min(index * 90, 450),
+        tension: 52,
+        delay,
         useNativeDriver: true,
       }),
-    ]).start();
+    ]).start(() => {
+      // After entrance, run a gentle glow pulse loop
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnim, { toValue: 1, duration: 1800, useNativeDriver: true }),
+          Animated.timing(glowAnim, { toValue: 0, duration: 1800, useNativeDriver: true }),
+        ])
+      ).start();
+    });
   }, [index]);
+
+  const borderOpacity = glowAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.22, 0.65],
+  });
 
   return (
     <Animated.View
@@ -261,9 +277,12 @@ export default function HomeScreen() {
       <StaggeredCard
         index={index}
         style={styles.spotlightCard}
-        activeOpacity={0.93}
+        activeOpacity={0.88}
         onPress={() => handleJobPress(item)}
       >
+        {/* Glowing top accent bar */}
+        <View style={styles.scAccentBar} />
+
         <View style={styles.scRow1}>
           <View style={styles.scIconBox}>
             <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
@@ -289,7 +308,7 @@ export default function HomeScreen() {
             <Text style={styles.scPaySub}>/{item.pay_type}</Text>
           </View>
           <View style={styles.scDistBlock}>
-            <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
+            <Ionicons name="location-outline" size={10} color="#FF9A50" />
             <Text style={styles.scDist}>{item.distance_km != null ? Number(item.distance_km).toFixed(1) : 'N/A'}km</Text>
           </View>
           <TouchableOpacity
@@ -2175,61 +2194,61 @@ const styles = StyleSheet.create({
   // Spotlight / Suggestion Cards
   // ─────────────────────────────────────────────────────────────────
   spotlightContainer: {
-    paddingTop: 16,
-    paddingBottom: 18,
-    backgroundColor: Colors.background, // #F8F9FB — same as app bg
+    paddingTop: 20,
+    paddingBottom: 22,
+    // Rich deep navy premium gradient-like bg via solid deep tone
+    backgroundColor: '#0F172A',
     marginTop: -3,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray2,
+    borderBottomWidth: 0,
   },
   spotlightTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 14,
   },
   spotlightTitle: {
     fontFamily: FontFamily.headingBold,
     fontSize: 16,
-    color: Colors.ink,
+    color: '#FFFFFF',
     letterSpacing: -0.3,
   },
   spotlightSubtitle: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: 11,
-    color: Colors.gray4,
-    marginTop: 1,
+    color: 'rgba(255,255,255,0.50)',
+    marginTop: 2,
   },
   spotlightTrackerWidget: {
     alignItems: 'center',
   },
   spotlightTrackerIconCircle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: Colors.saffronLight,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,107,0,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: Colors.saffron + '30',
+    borderColor: 'rgba(255,107,0,0.45)',
     marginBottom: 3,
   },
   spotlightTrackerLabel: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 9,
-    color: Colors.gray5,
+    color: 'rgba(255,255,255,0.55)',
   },
   spotlightBtnBadgeDot: {
     position: 'absolute',
     top: 1,
     right: 1,
-    width: 7,
-    height: 7,
+    width: 8,
+    height: 8,
     borderRadius: 4,
     backgroundColor: Colors.greenMid,
     borderWidth: 1.5,
-    borderColor: Colors.background,
+    borderColor: '#0F172A',
   },
   spotlightList: {
     paddingHorizontal: 20,
@@ -2237,14 +2256,26 @@ const styles = StyleSheet.create({
   },
   // ── Card itself ──────────────────────────────────────────────────
   spotlightCard: {
-    width: 242,
-    backgroundColor: Colors.white,
-    borderRadius: 16,
-    padding: 14,
+    width: 248,
+    // Deep dark glass card with subtle warm tint
+    backgroundColor: '#1E293B',
+    borderRadius: 20,
+    padding: 15,
     borderWidth: 1,
-    borderColor: '#EAEAEA',
-    // Soft premium neutral shadow
-    boxShadow: "0px 4px 24px rgba(0,0,0,0.04)",
+    borderColor: 'rgba(255,107,0,0.22)',
+    boxShadow: "0px 8px 32px rgba(0,0,0,0.35), 0px 0px 0px 1px rgba(255,255,255,0.04)",
+    overflow: 'hidden',
+  },
+  scAccentBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: Colors.saffron,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    opacity: 0.85,
   },
   spotlightHeader: {
     flexDirection: 'row',
@@ -2357,16 +2388,17 @@ const styles = StyleSheet.create({
   scRow1: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
+    marginTop: 6,
     gap: 10,
   },
   scIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 107, 0, 0.08)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 107, 0, 0.15)',
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,107,0,0.15)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,107,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
@@ -2375,15 +2407,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: FontFamily.headingBold,
     fontSize: 14,
-    color: Colors.ink,
+    color: '#FFFFFF',
     letterSpacing: -0.2,
-    lineHeight: 18,
+    lineHeight: 19,
   },
   scRow2: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
+    marginBottom: 11,
   },
   scProviderGroup: {
     flexDirection: 'row',
@@ -2395,7 +2427,7 @@ const styles = StyleSheet.create({
   scProvider: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: 11,
-    color: Colors.gray5,
+    color: 'rgba(255,255,255,0.50)',
     flexShrink: 1,
   },
   scRating: {
@@ -2406,23 +2438,25 @@ const styles = StyleSheet.create({
   scRatingText: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 11,
-    color: Colors.goldDark,
+    color: Colors.gold,
   },
   scMatchBadge: {
-    backgroundColor: 'rgba(46, 125, 50, 0.08)',
+    backgroundColor: 'rgba(34,197,94,0.15)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: Radius.round,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.35)',
     flexShrink: 0,
   },
   scMatchText: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 10,
-    color: '#2E7D32',
+    color: '#4ADE80',
   },
   scDivider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: 'rgba(255,255,255,0.07)',
     marginVertical: 10,
   },
   scFooter: {
@@ -2437,46 +2471,48 @@ const styles = StyleSheet.create({
   },
   scPay: {
     fontFamily: FontFamily.headingBold,
-    fontSize: 14,
-    color: Colors.navy,
+    fontSize: 15,
+    color: '#FFFFFF',
     letterSpacing: -0.3,
   },
   scPaySub: {
     fontFamily: FontFamily.bodyMedium,
     fontSize: 10,
-    color: Colors.gray4,
-    marginLeft: 1,
+    color: 'rgba(255,255,255,0.40)',
+    marginLeft: 2,
   },
   scDistBlock: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 107, 0, 0.07)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    backgroundColor: 'rgba(255,107,0,0.12)',
+    paddingHorizontal: 7,
+    paddingVertical: 4,
     borderRadius: Radius.round,
     borderWidth: 1,
-    borderColor: 'rgba(255, 107, 0, 0.15)',
+    borderColor: 'rgba(255,107,0,0.30)',
     gap: 2,
   },
   scDist: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 10,
-    color: Colors.saffronDark,
+    color: '#FF9A50',
   },
   scApplyBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.saffron,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: Radius.sm,
-    boxShadow: "0px 2px 8px rgba(255,107,0,0.15)",
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    boxShadow: "0px 4px 16px rgba(255,107,0,0.45)",
   },
   scApplyText: {
     fontFamily: FontFamily.bodySemiBold,
     fontSize: 11,
     color: Colors.white,
-    letterSpacing: 0.1,
+    letterSpacing: 0.2,
   },
   // ── Keep legacy aliases so existing code doesn't break ──────────
   spotlightCircle: {

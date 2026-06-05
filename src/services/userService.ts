@@ -77,30 +77,37 @@ class UserService {
       throw new Error('Firebase authentication token missing.');
     }
 
-    const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000'; // Default fallback
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${jwtToken}`,
-      },
-      body: JSON.stringify({ phone, role: 'seeker' }),
-    }).catch(error => {
+    let response: Response;
+    try {
+      response = await apiFetch(`${apiUrl}/api/users/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({ phone, role: 'seeker' }),
+      });
+    } catch (error) {
       console.log('[API] Backend unreachable:', error);
-      throw new Error('Backend not reachable');
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      Sentry.captureException(new Error(`${'[UserService] backend profile creation error:'} ${errorData}`));
-      throw new Error(errorData.error || 'Failed to create user profile on backend.');
+      throw new Error('Backend not reachable. Please check your connection.');
     }
 
-    const { user: newUser } = await response.json();
-    
-    if (newUser) {
-      return { isNewUser: true, user: this.mapRow(newUser) };
+    let result: any = {};
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error('Invalid response from server.');
+    }
+
+    if (!response.ok) {
+      Sentry.captureException(new Error(`[UserService] backend profile creation error: ${result.error}`));
+      throw new Error(result.error || 'Failed to create user profile on backend.');
+    }
+
+    if (result.user) {
+      return { isNewUser: true, user: this.mapRow(result.user) };
     } else {
       throw new Error('Failed to create user profile on backend. Empty response.');
     }
@@ -195,32 +202,39 @@ class UserService {
 
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${jwtToken}`,
-      },
-      body: JSON.stringify({
-        phone,
-        ...profileData,
-        is_profile_complete: true,
-      }),
-    }).catch(error => {
+    let response: Response;
+    try {
+      response = await apiFetch(`${apiUrl}/api/users/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({
+          phone,
+          ...profileData,
+          is_profile_complete: true,
+        }),
+      });
+    } catch (error) {
       console.log('[API] Backend unreachable:', error);
-      throw new Error('Backend not reachable');
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      Sentry.captureException(new Error(`${'[UserService] createFullProfile error:'} ${errorData}`));
-      throw new Error(errorData.error || 'Failed to create user profile.');
+      throw new Error('Backend not reachable. Please check your connection.');
     }
 
-    const { user: newUser } = await response.json();
+    let result: any = {};
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error('Invalid response from server.');
+    }
 
-    if (newUser) {
-      return { isNewUser: true, user: this.mapRow(newUser) };
+    if (!response.ok) {
+      Sentry.captureException(new Error(`[UserService] createFullProfile error: ${result.error}`));
+      throw new Error(result.error || 'Failed to create user profile.');
+    }
+
+    if (result.user) {
+      return { isNewUser: true, user: this.mapRow(result.user) };
     } else {
       throw new Error('Failed to create user profile on backend. Empty response.');
     }
@@ -237,26 +251,35 @@ class UserService {
     const jwtToken = await firebaseAuth.getIdToken();
     const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
 
-    const response = await apiFetch(`${apiUrl}/api/users/profile`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${jwtToken}`,
-      },
-      body: JSON.stringify({
-        ...data,
-        is_profile_complete: true,
-      }),
-    }).catch(error => {
+    let response: Response;
+    try {
+      response = await apiFetch(`${apiUrl}/api/users/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${jwtToken}`,
+        },
+        body: JSON.stringify({
+          ...data,
+          is_profile_complete: true,
+        }),
+      });
+    } catch (error) {
       console.log('[API] Backend unreachable:', error);
-      throw new Error('Backend not reachable');
-    });
+      throw new Error('Backend not reachable. Please check your connection.');
+    }
 
-    const result = await response.json();
+    // Parse JSON only after we have a response object
+    let result: any = {};
+    try {
+      result = await response.json();
+    } catch {
+      throw new Error('Invalid response from server. Please try again.');
+    }
 
     if (!response.ok || !result.success) {
-      Sentry.captureException(new Error(`${'[UserService] updateProfile error:'} ${result.error}`));
-      throw new Error('Failed to save your profile. Please try again.');
+      Sentry.captureException(new Error(`[UserService] updateProfile error: ${result.error}`));
+      throw new Error(result.error || 'Failed to save your profile. Please try again.');
     }
 
     return this.mapRow(result.user);
@@ -313,18 +336,19 @@ class UserService {
   }
 
   /**
-   * Maps a raw Supabase database row to the typed User interface.
-   * Ensures type safety and handles nullable fields.
+   * Maps a raw Supabase/Postgres database row to the typed User interface.
+   * Handles both old and new column naming conventions defensively.
    */
   private mapRow(row: Record<string, any>): User {
     return {
       id: row.id,
       firebase_uid: row.firebase_uid,
-      phone: row.phone,
+      // DB uses `phone`, legacy rows might have `phone_number`
+      phone: row.phone ?? row.phone_number ?? null,
       name: row.name ?? null,
-      age: row.age ?? null,
+      age: row.age ?? row.experience ?? null,
       bio: row.bio ?? null,
-      avatar_url: row.avatar_url ?? null,
+      avatar_url: row.avatar_url ?? row.profile_image ?? null,
       role: row.role ?? 'seeker',
       skills: row.skills ?? [],
       language: row.language ?? 'en',
@@ -333,11 +357,11 @@ class UserService {
       location_name: row.location_name ?? null,
       jobs_completed: row.jobs_completed ?? 0,
       jobs_posted: row.jobs_posted ?? 0,
-      worker_rating: parseFloat(row.worker_rating ?? '0'),
+      worker_rating: parseFloat(row.worker_rating ?? row.rating_average ?? '0'),
       employer_rating: parseFloat(row.employer_rating ?? '0'),
-      total_reviews: row.total_reviews ?? 0,
+      total_reviews: row.total_reviews ?? row.rating_count ?? 0,
       is_verified: row.is_verified ?? false,
-      is_blocked: row.is_blocked ?? false,
+      is_blocked: row.is_blocked ?? row.is_deleted ?? false,
       expo_push_token: row.expo_push_token ?? null,
       trust_score: parseFloat(row.trust_score ?? '50'),
       reports: row.reports ?? 0,
@@ -345,6 +369,7 @@ class UserService {
       response_rate: parseFloat(row.response_rate ?? '100'),
       expected_salary: row.expected_salary ?? undefined,
       preferred_pay_type: row.preferred_pay_type ?? undefined,
+      is_profile_complete: row.is_profile_complete ?? false,
       created_at: row.created_at,
       updated_at: row.updated_at,
     } as User;

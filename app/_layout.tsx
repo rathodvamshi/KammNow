@@ -98,65 +98,72 @@ export default function RootLayout() {
 
     const bootstrap = async () => {
       try {
-        await Promise.all([
-          initSession(),
-          new Promise<void>((resolve) => {
-            const tempUnsub = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
-              // Unsubscribe immediately so this only runs once for the initial check
-              tempUnsub();
-              
-              if (!isMounted) {
-                resolve();
-                return;
-              }
+        // Step 1: Fast cold-start restore from SecureStore
+        await initSession();
 
-              try {
-                if (firebaseUser) {
-                  const profile = await userService.getUserByFirebaseUid(firebaseUser.uid);
-                  if (profile) {
-                    await setFirebaseSession(firebaseUser.uid, profile.id);
-                    setUser(profile);
+        // Step 2: Single auth state check — resolves once, then hands off to background listener
+        await new Promise<void>((resolve) => {
+          let resolved = false;
+          const tempUnsub = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
+            tempUnsub(); // unsubscribe immediately — we only need the first event
+            if (resolved) return;
 
-                    // ── Connect Socket.IO after successful login ──
-                    try {
-                      const token = await firebaseAuth.getIdToken();
-                      if (token && profile.id) {
-                        socketClient.connect(token, profile.id);
-                      }
-                    } catch (socketErr) {
-                      console.warn('[Layout] Socket connect error:', socketErr);
+            if (!isMounted) {
+              resolved = true;
+              resolve();
+              return;
+            }
+
+            try {
+              if (firebaseUser) {
+                const profile = await userService.getUserByFirebaseUid(firebaseUser.uid);
+                if (profile) {
+                  await setFirebaseSession(firebaseUser.uid, profile.id);
+                  setUser(profile);
+
+                  // Connect Socket.IO after successful login
+                  try {
+                    const token = await firebaseAuth.getIdToken();
+                    if (token && profile.id) {
+                      socketClient.connect(token, profile.id);
                     }
-
-                    // Sync saved addresses for the new session immediately
-                    useAddressStore.getState().loadFromStorage();
-
-                    // Push notifications & Geo-Engine Heartbeat
-                    const fcmToken = await requestPushPermission();
-                    const loc = useLocationStore.getState();
-                    await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined, fcmToken ?? undefined);
-                  } else {
-                    setLoading(false);
+                  } catch (socketErr) {
+                    console.warn('[Layout] Socket connect error:', socketErr);
                   }
+
+                  useAddressStore.getState().loadFromStorage();
+
+                  const fcmToken = await requestPushPermission();
+                  const loc = useLocationStore.getState();
+                  await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined, fcmToken ?? undefined);
                 } else {
-                  await logout();
+                  // Firebase user exists but no Supabase profile — clear loading
+                  setLoading(false);
                 }
-              } catch (error) {
-                Sentry.captureException(new Error(`[Layout] Initial Auth fetch error: ${error}`));
-                setLoading(false);
-              } finally {
-                resolve();
+              } else {
+                // No Firebase user — ensure clean logout state
+                await logout();
               }
-            });
-          })
-        ]);
+            } catch (error) {
+              Sentry.captureException(new Error(`[Layout] Initial Auth fetch error: ${error}`));
+              setLoading(false);
+            } finally {
+              resolved = true;
+              resolve();
+            }
+          });
+        });
       } catch (error) {
         Sentry.captureException(new Error(`[Layout] Bootstrap error: ${error}`));
         setLoading(false);
       } finally {
-        await SplashScreen.hideAsync();
+        if (isMounted) {
+          await SplashScreen.hideAsync();
+        }
       }
 
-      // Attach the ongoing background listener
+      // Step 3: Attach the persistent background listener AFTER bootstrap completes
+      // This avoids the race where both fire simultaneously on app start
       authUnsubscribe.current = firebaseAuth.onAuthStateChanged(async (firebaseUser) => {
         if (!isMounted || isHandlingAuth.current) return;
         isHandlingAuth.current = true;
@@ -167,11 +174,8 @@ export default function RootLayout() {
             if (profile) {
               await setFirebaseSession(firebaseUser.uid, profile.id);
               setUser(profile);
-
-              // Sync saved addresses for the new session immediately
               useAddressStore.getState().loadFromStorage();
 
-              // Geo-Engine Heartbeat (assuming permission already asked)
               const fcmToken = await requestPushPermission();
               const loc = useLocationStore.getState();
               await sendHeartbeat(loc.lat ?? undefined, loc.lng ?? undefined, fcmToken ?? undefined);
@@ -180,7 +184,6 @@ export default function RootLayout() {
             }
           } else {
             await logout();
-            // Disconnect socket when user logs out
             socketClient.disconnect();
           }
         } catch (error) {

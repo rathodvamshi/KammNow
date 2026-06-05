@@ -1,5 +1,7 @@
-require('dotenv').config({ path: '../.env' }); // Load root .env
-require('dotenv').config(); // Load backend .env (if it exists)
+// Load and validate env vars — must be first
+require('./config/env'); // validates all required vars on startup
+require('dotenv').config({ path: '../.env' });
+require('dotenv').config();
 const Sentry = require('@sentry/node');
 Sentry.init({
   dsn: process.env.SENTRY_DSN || '',
@@ -30,7 +32,20 @@ const app = express();
 
 // 2. Security & Monitoring Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow: mobile app (no origin), localhost, and LAN IP dev builds
+    const allowed = !origin
+      || origin.startsWith('http://localhost')
+      || origin.startsWith('http://192.168.')
+      || origin.startsWith('http://10.')
+      || origin.startsWith('exp://');
+    callback(null, allowed);
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
 app.use(express.json());
 
 // Performance Monitoring Middleware

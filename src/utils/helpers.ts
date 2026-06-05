@@ -4,7 +4,14 @@ import type { PayType, JobCategory } from '../types';
 
 /**
  * Haversine distance formula — returns distance in km between two GPS coordinates.
- * Optimized with early exit for same-point case.
+ *
+ * Uses the standard spherical haversine formula:
+ *   a = sin²(Δlat/2) + cos(lat1)·cos(lat2)·sin²(Δlng/2)
+ *   c = 2·atan2(√a, √(1−a))
+ *   d = R·c
+ *
+ * Earth radius R = 6371 km (mean radius, WGS-84).
+ * Accurate to ~0.5% for distances up to 1000 km — more than sufficient for job radius matching.
  */
 export function haversineDistance(
   lat1: number,
@@ -12,14 +19,25 @@ export function haversineDistance(
   lat2: number,
   lng2: number
 ): number {
+  // Guard: invalid coordinates return Infinity so caller can safely filter them out
+  if (
+    !isFinite(lat1) || !isFinite(lng1) ||
+    !isFinite(lat2) || !isFinite(lng2) ||
+    lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
+    lng1 < -180 || lng1 > 180 || lng2 < -180 || lng2 > 180
+  ) {
+    return Infinity;
+  }
   if (lat1 === lat2 && lng1 === lng2) return 0;
-  const R = 6371; // Earth radius in km
+
+  const R = 6371; // Earth mean radius in km
   const dLat = toRad(lat2 - lat1);
   const dLng = toRad(lng2 - lng1);
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
 }
 
 function toRad(deg: number): number {

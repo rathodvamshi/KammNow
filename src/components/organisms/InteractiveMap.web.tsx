@@ -16,7 +16,9 @@ interface InteractiveMapProps {
 
 export const InteractiveMap = forwardRef<any, InteractiveMapProps>(
   ({ region, onRegionChange, onRegionChangeComplete, mapPadding, scrollEnabled = true }, ref) => {
-    const containerId = 'web-leaflet-map';
+    // Stable unique ID per component instance — prevents collision when multiple maps mount
+    const containerIdRef = useRef(`web-leaflet-map-${Math.random().toString(36).slice(2, 9)}`);
+    const containerId = containerIdRef.current;
     const mapInstance = useRef<any>(null);
 
     // Expose animateToRegion to parent

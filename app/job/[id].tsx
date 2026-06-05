@@ -28,6 +28,7 @@ import {
 import { buildJobDetailModel } from '../../src/utils/jobDetailDisplay';
 import { getCategoryLabel } from '../../src/utils/jobCardDisplay';
 import { JobDetailContent } from '../../src/components/organisms/JobDetailContent';
+import { StaticMap } from '../../src/components/organisms/StaticMap';
 import { useApplicationStore } from '../../src/store/applicationStore';
 import { AnimatedProgressTracker } from '../../src/components/molecules/AnimatedProgressTracker';
 import { ActivityIndicator } from 'react-native';
@@ -136,6 +137,24 @@ export default function JobDetailScreen() {
   };
 
   const openDirections = () => {
+    // Always prefer coordinates over text search — more accurate and works offline areas
+    if (job.location_lat && job.location_lng) {
+      const lat = parseFloat(job.location_lat);
+      const lng = parseFloat(job.location_lng);
+      if (isFinite(lat) && isFinite(lng)) {
+        // Use coordinates + label so Google Maps shows the pin precisely
+        const label = encodeURIComponent(job.location_name || 'Job Location');
+        const url = Platform.OS === 'ios'
+          ? `maps://?daddr=${lat},${lng}&q=${label}`
+          : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&destination_place_id=${label}`;
+        Linking.openURL(url).catch(() => {
+          // Fallback: open in browser
+          Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
+        });
+        return;
+      }
+    }
+    // Fallback: text-based search if no coords
     if (job.location_name) {
       Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(job.location_name)}`);
     }

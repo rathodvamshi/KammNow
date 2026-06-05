@@ -16,8 +16,13 @@ import { useUIStore } from '../../src/store/uiStore';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { BottomSheetModal, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 
+// Read Google Maps API key from app config — works for both iOS and Android builds
+// Falls back to the env var directly for dev-client / Expo Go
 const GOOGLE_PLACES_API_KEY =
-  Constants.expoConfig?.android?.config?.googleMaps?.apiKey || 'YOUR_KEY';
+  Constants.expoConfig?.ios?.config?.googleMapsApiKey ||
+  Constants.expoConfig?.android?.config?.googleMaps?.apiKey ||
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
+  '';
 
 export default function SavedAddressesScreen() {
   const [searchFocused, setSearchFocused] = useState(false);

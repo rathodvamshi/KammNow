@@ -241,8 +241,9 @@ export default function MapPickerScreen() {
     try {
       const addressData = {
         label: addressLabel,
-        flatHouse: geocoded?.area || 'Saved Location',
-        floor: '',
+        // flatHouse = user-entered flat/house/building number, or fallback to geocoded value
+        flatHouse: flatHouse.trim() || geocoded?.flatHouse || '',
+        floor: floor.trim(),
         street: geocoded?.street || '',
         area: geocoded?.area || '',
         landmark: landmark.trim() || geocoded?.landmark || '',
@@ -266,12 +267,14 @@ export default function MapPickerScreen() {
       }
 
       setActive(savedId);
-      updateLocation(region.latitude, region.longitude, addressData.flatHouse || addressData.area || 'Saved Location');
+      // Update location display name to the most descriptive available field
+      const displayName = addressData.area || addressData.city || 'Saved Location';
+      updateLocation(region.latitude, region.longitude, displayName);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       
       router.replace('/location/saved-addresses');
     } catch (e) {
-      alert('Failed to save address.');
+      alert('Failed to save address. Please try again.');
     } finally {
       setIsSaving(false);
     }

@@ -156,7 +156,7 @@ function AnimatedLogo() {
 }
 
 export default function SplashScreen() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, isLoading } = useAuthStore();
 
   const logoScale = useSharedValue(0);
   const logoOpacity = useSharedValue(0);
@@ -183,19 +183,22 @@ export default function SplashScreen() {
     // Pills
     pillsOpacity.value = withDelay(1000, withTiming(1, { duration: 500 }));
     pillsTranslateY.value = withDelay(1000, withSpring(0, { damping: 12 }));
+  }, []);
 
-    // Smart navigate after animation
+  // Navigate only once auth hydration is complete — never on a dumb timer
+  useEffect(() => {
+    if (isLoading) return; // still hydrating — wait
+
+    // Minimum 1.8s so animations play through, then route
     const timer = setTimeout(() => {
       if (isAuthenticated) {
-        // Returning logged-in user — go straight to main app
         router.replace('/(tabs)');
       } else {
-        // New / logged-out user — go to login
         router.replace('/(auth)/phone');
       }
-    }, 3000);
+    }, 1800);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isLoading, isAuthenticated]);
 
   const logoStyle = useAnimatedStyle(() => ({
     opacity: logoOpacity.value,
