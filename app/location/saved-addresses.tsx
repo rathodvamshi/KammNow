@@ -33,7 +33,12 @@ export default function SavedAddressesScreen() {
   const menuSheetRef = useRef<BottomSheetModal>(null);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
 
-  const { savedAddresses, setActive, deleteAddress } = useAddressStore();
+  const { savedAddresses, setActive, deleteAddress, loadFromStorage, isLoaded } = useAddressStore();
+
+  useEffect(() => {
+    loadFromStorage();
+  }, []);
+
   const { updateLocation, detectCurrentLocation, sessionLocationConfirmed } = useLocationStore();
   const { currentRole } = useUIStore();
 

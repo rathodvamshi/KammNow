@@ -14,13 +14,25 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
     
+    // Link external signal (from React Query) to internal timeout controller
+    const onExternalAbort = () => controller.abort();
+    if (options.signal) {
+      options.signal.addEventListener('abort', onExternalAbort);
+    }
+    
     try {
-      console.log(`[API] Fetching ${url} (Attempt ${i + 1})`);
+      // Remove console.log data spam to satisfy Phase 1 Task 4
       const response = await fetch(url, { ...options, signal: controller.signal as any });
       clearTimeout(timeoutId);
+      if (options.signal) options.signal.removeEventListener('abort', onExternalAbort);
       
-      console.log(`[API] Response status: ${response.status}`);
+      // console.log(`[API] Response status: ${response.status}`);
       if (response.ok) {
+        return response;
+      }
+
+      // Do NOT retry client errors (400, 401, 403, 404, etc) except 429 Too Many Requests
+      if (response.status >= 400 && response.status < 500 && response.status !== 429) {
         return response;
       }
       
@@ -31,7 +43,8 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
       }
     } catch (error: any) {
       clearTimeout(timeoutId);
-      console.error(`[API] Network error: ${error.message}`);
+      if (options.signal) options.signal.removeEventListener('abort', onExternalAbort);
+      console.warn(`[API] Network error: ${error.message}`);
       
       if (i === MAX_RETRIES) {
         if (error.name === 'AbortError') {
@@ -43,7 +56,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     
     // Exponential backoff: 1s, 2s
     const delay = (i + 1) * 1000;
-    console.log(`[API] Retrying in ${delay}ms...`);
+    // console.log(`[API] Retrying in ${delay}ms...`);
     await new Promise(resolve => setTimeout(resolve, delay));
   }
   

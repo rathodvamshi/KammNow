@@ -30,13 +30,14 @@ export const LocationPromptBottomSheet: React.FC<Props> = ({
   const snapPoints = useMemo(() => ['85%'], []);
   const [isEnabling, setIsEnabling] = useState(false);
   const { currentRole } = useUIStore();
-  const { savedAddresses, setActive } = useAddressStore();
+  const { savedAddresses, setActive, loadFromStorage, isLoaded } = useAddressStore();
   const { updateLocation } = useLocationStore();
 
   const themeColor = currentRole === 'seeker' ? Colors.saffron : '#005B5C';
 
   useEffect(() => {
     if (visible) {
+      loadFromStorage();
       bottomSheetRef.current?.expand();
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     }

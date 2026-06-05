@@ -59,7 +59,7 @@ async function processJobPosted(payloadStr) {
       SELECT id, fcm_token, quiet_hours_start, quiet_hours_end 
       FROM users 
       WHERE id = ANY($1) 
-        AND last_active_at > NOW() - INTERVAL '7 days'
+        AND updated_at > NOW() - INTERVAL '7 days'
         AND is_deleted = false 
         AND COALESCE(is_suspended, FALSE) = FALSE
         AND fcm_token IS NOT NULL

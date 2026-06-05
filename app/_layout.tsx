@@ -29,6 +29,9 @@ import { firebaseAuth } from '../src/services/firebaseAuth';
 import { userService } from '../src/services/userService';
 import { requestPushPermission, setupForegroundHandler, setupBackgroundHandler, sendHeartbeat } from '../src/services/pushNotification';
 import { useLocationStore } from '../src/store/locationStore';
+import { useAddressStore } from '../src/store/addressStore';
+import socketClient from '../src/services/socketClient';
+import { useRealtimeJobs } from '../src/hooks/useRealtimeJobs';
 
 // Initialize FCM background handler once outside the component
 setupBackgroundHandler();
@@ -63,9 +66,10 @@ Sentry.init({
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000,
-      retry: 2,
-      refetchOnWindowFocus: true,
+      staleTime: 30000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
     },
   },
 });
@@ -113,6 +117,19 @@ export default function RootLayout() {
                     await setFirebaseSession(firebaseUser.uid, profile.id);
                     setUser(profile);
 
+                    // ── Connect Socket.IO after successful login ──
+                    try {
+                      const token = await firebaseAuth.getIdToken();
+                      if (token && profile.id) {
+                        socketClient.connect(token, profile.id);
+                      }
+                    } catch (socketErr) {
+                      console.warn('[Layout] Socket connect error:', socketErr);
+                    }
+
+                    // Sync saved addresses for the new session immediately
+                    useAddressStore.getState().loadFromStorage();
+
                     // Push notifications & Geo-Engine Heartbeat
                     const fcmToken = await requestPushPermission();
                     const loc = useLocationStore.getState();
@@ -151,6 +168,9 @@ export default function RootLayout() {
               await setFirebaseSession(firebaseUser.uid, profile.id);
               setUser(profile);
 
+              // Sync saved addresses for the new session immediately
+              useAddressStore.getState().loadFromStorage();
+
               // Geo-Engine Heartbeat (assuming permission already asked)
               const fcmToken = await requestPushPermission();
               const loc = useLocationStore.getState();
@@ -160,6 +180,8 @@ export default function RootLayout() {
             }
           } else {
             await logout();
+            // Disconnect socket when user logs out
+            socketClient.disconnect();
           }
         } catch (error) {
           Sentry.captureException(new Error(`[Layout] Background Auth handler error: ${error}`));
@@ -195,6 +217,9 @@ export default function RootLayout() {
     });
     return () => subscription.remove();
   }, []);
+
+  // Mount real-time socket event listeners at root level (single instance)
+  useRealtimeJobs();
 
   if (!fontsLoaded) return null;
 

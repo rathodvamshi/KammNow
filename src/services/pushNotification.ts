@@ -133,11 +133,35 @@ function handleNotificationTap(remoteMessage: any) {
   }
 }
 
+import { haversineDistance } from '../utils/helpers';
+
+let lastHeartbeatTime = 0;
+let lastHeartbeatLat: number | null = null;
+let lastHeartbeatLng: number | null = null;
+
 /**
  * Helper to ping the backend heartbeat endpoint with location and FCM token.
+ * Throttled: Only sends if moved > 300m or 5 minutes have passed since last ping.
  */
 export async function sendHeartbeat(latitude?: number, longitude?: number, fcmToken?: string) {
   try {
+    const now = Date.now();
+    const timeSinceLast = now - lastHeartbeatTime;
+
+    // Check distance moved if we have valid coordinates
+    let movedFarEnough = true; // Default to true if we don't have previous coords
+    if (latitude && longitude && lastHeartbeatLat && lastHeartbeatLng) {
+      const distanceKm = haversineDistance(latitude, longitude, lastHeartbeatLat, lastHeartbeatLng);
+      if (distanceKm < 0.3) { // Less than 300 meters
+        movedFarEnough = false;
+      }
+    }
+
+    // Abort if we haven't moved far enough AND it hasn't been 5 minutes
+    if (!movedFarEnough && timeSinceLast < 5 * 60 * 1000) {
+      return; 
+    }
+
     const token = await firebaseAuth.getIdToken();
     if (!token) return;
 
@@ -155,6 +179,13 @@ export async function sendHeartbeat(latitude?: number, longitude?: number, fcmTo
         fcm_token: fcmToken
       }),
     });
+
+    // Update throttle cache
+    lastHeartbeatTime = now;
+    if (latitude && longitude) {
+      lastHeartbeatLat = latitude;
+      lastHeartbeatLng = longitude;
+    }
   } catch (err) {
     // Silently fail for background heartbeat
     console.log('Heartbeat failed', err);

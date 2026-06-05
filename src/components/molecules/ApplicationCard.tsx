@@ -83,7 +83,7 @@ export const ApplicationCard: React.FC<ApplicationCardProps> = ({
             <Text style={styles.stars}>
               {'⭐'.repeat(Math.round(person.worker_rating))}
             </Text>
-            <Text style={styles.ratingText}>{person.worker_rating.toFixed(1)} rating</Text>
+            <Text style={styles.ratingText}>{person.worker_rating != null ? Number(person.worker_rating).toFixed(1) : 'New'} rating</Text>
           </>
         )}
         <Badge variant={statusVariant} label={statusLabel} />

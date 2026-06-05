@@ -4,6 +4,7 @@ import type { Application, ApplicationStatus, Job } from '../types';
 import { supabase } from '../services/supabase';
 import { firebaseAuth } from '../services/firebaseAuth';
 import { apiFetch } from '../utils/apiClient';
+import { sanitizeApplications } from '../utils/sanitizers';
 
 interface ApplicationState {
   myApplications: Application[];
@@ -38,7 +39,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      set({ myApplications: data || [], isLoading: false });
+      set({ myApplications: sanitizeApplications(data), isLoading: false });
     } catch (error: any) {
       Sentry.captureException(new Error(`${'Failed to fetch my applications:'} ${error}`));
       set({ error: error.message || 'Failed to fetch applications', isLoading: false });
@@ -62,7 +63,7 @@ export const useApplicationStore = create<ApplicationState>((set, get) => ({
       }
 
       const { data } = await response.json();
-      set({ receivedApplications: data || [], isLoading: false });
+      set({ receivedApplications: sanitizeApplications(data), isLoading: false });
     } catch (error: any) {
       Sentry.captureException(new Error(`${'Failed to fetch received applications:'} ${error}`));
       set({ error: error.message || 'Failed to fetch received applications', isLoading: false });

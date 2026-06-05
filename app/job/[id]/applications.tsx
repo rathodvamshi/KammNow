@@ -73,7 +73,7 @@ export default function JobApplicationsScreen() {
     const applicant = item.applicant;
     const applicantName = applicant?.name || `Applicant ${item.applicant_id.split('-')[1] || item.applicant_id.substring(0,4)}`;
     const avatarUrl = applicant?.avatar_url || `https://i.pravatar.cc/150?u=${item.applicant_id}`;
-    const rating = applicant?.worker_rating?.toFixed(1) || 'New';
+    const rating = applicant?.worker_rating ? parseFloat(applicant.worker_rating.toString()).toFixed(1) : 'New';
     const jobsCount = applicant?.jobs_completed || 0;
     const skills = applicant?.skills || [];
     

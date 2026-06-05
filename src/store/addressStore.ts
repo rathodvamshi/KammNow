@@ -3,6 +3,7 @@ import * as Sentry from '@sentry/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from './authStore';
 import { supabase } from '../services/supabase';
+import { api } from '../services/api';
 
 const MAX_ADDRESSES = 20;
 const MAX_RECENTS = 10;
@@ -87,41 +88,39 @@ export const useAddressStore = create<AddressState>((set, get) => ({
       
       let savedAddresses: SavedAddress[] = [];
 
-      // 1. Try to fetch from Supabase if authenticated
+      // 1. Try to fetch from Backend API if authenticated
       if (user) {
         try {
-          const { data, error } = await supabase
-            .from('user_location')
-            .select('*')
-            .eq('user_id', user.id)
-            .eq('is_deleted', false)
-            .order('updated_at', { ascending: false });
+          const response = await api.get(`/users/addresses`);
 
-          if (data && !error) {
-            savedAddresses = data.map(d => ({
-              id: d.id,
-              label: (d.label as AddressLabel) || 'other',
-              flatHouse: d.flat_house || '',
-              street: d.address || '',
-              area: d.area || '',
-              landmark: d.landmark || '',
-              city: d.city || '',
-              state: d.state || '',
-              pincode: d.pincode || '',
-              lat: d.latitude || 0,
-              lng: d.longitude || 0,
-              isDefault: d.is_default || false,
-              createdAt: new Date(d.created_at).getTime(),
-              lastUsed: new Date(d.updated_at).getTime(),
-            }));
-            
-            // Sync cloud data back to local storage
-            await persist(keys.addresses, savedAddresses);
-          } else if (error) {
-            console.warn("Supabase fetch address error:", error);
+          if (response.status === 200) {
+            const data = response.data;
+            if (data.success && data.addresses) {
+              savedAddresses = data.addresses.map((d: any) => ({
+                id: d.id,
+                label: (d.label as AddressLabel) || 'other',
+                flatHouse: d.flat_house || '',
+                street: d.address || '',
+                area: d.area || '',
+                landmark: d.landmark || '',
+                city: d.city || '',
+                state: d.state || '',
+                pincode: d.pincode || '',
+                lat: d.latitude || 0,
+                lng: d.longitude || 0,
+                isDefault: d.is_default || false,
+                createdAt: new Date(d.created_at).getTime(),
+                lastUsed: new Date(d.updated_at).getTime(),
+              }));
+              
+              // Sync cloud data back to local storage
+              await persist(keys.addresses, savedAddresses);
+            }
+          } else {
+            console.warn("Backend fetch address error:", response.status);
           }
         } catch (e) {
-          console.warn("Supabase exception:", e);
+          console.warn("Backend API exception:", e);
         }
       }
 

@@ -1,0 +1,125 @@
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[Heartbeat Error] error: column "last_active_at" of relation "users" does not exist
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:229:5
+[POST /api/jobs Error] error: date/time field value out of range: "27/05/2026"
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:321:20
+[POST /api/jobs Error] error: date/time field value out of range: "27/05/2026"
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:321:20
+[POST /api/jobs Error] error: date/time field value out of range: "27/05/2026"
+    at /Users/sainath.are/Documents/kammnow/node_modules/pg-pool/index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async Object.query (/Users/sainath.are/Documents/kammnow/backend/db.js:11:15)
+    at async /Users/sainath.are/Documents/kammnow/backend/server.js:321:20

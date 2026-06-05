@@ -22,6 +22,7 @@ import { useJobStore } from '../../src/store/jobStore';
 import { useAddressStore } from '../../src/store/addressStore';
 import { useLocationStore } from '../../src/store/locationStore';
 import { reverseGeocode } from '../../src/utils/geocoding';
+import { formatForApi, formatForDisplay } from '../../src/utils/date';
 
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -344,9 +345,10 @@ export default function PostJobScreen() {
       else if (pickerTarget === 'monthlyStart') setMonthlyShiftStart(t);
       else if (pickerTarget === 'monthlyEnd') setMonthlyShiftEnd(t);
     } else {
-      const d = selectedDate.toLocaleDateString();
-      if (pickerTarget === 'dailyDate') setDailyStartDate(d);
-      else if (pickerTarget === 'monthlyDate') setJoiningDate(d);
+      const apiDate = formatForApi(selectedDate);
+      if (!apiDate) return; // Prevent saving invalid dates
+      if (pickerTarget === 'dailyDate') setDailyStartDate(apiDate);
+      else if (pickerTarget === 'monthlyDate') setJoiningDate(apiDate);
     }
   };
 
@@ -449,31 +451,64 @@ export default function PostJobScreen() {
     setIsPosting(true);
     
     try {
-      const jobData = {
+      const jobData: Record<string, any> = {
+        // ── Step 1: Basic Details ───────────────────────────────────────
         title,
         description,
         category_id: category,
+
+        // ── Step 2: Work Type ───────────────────────────────────────────
         job_type: workType,
-        salary: workType === 'hour'
-          ? parseFloat(hourlyRate)
-          : workType === 'day'
-          ? parseFloat(dailyWage)
-          : parseFloat(monthlySalary),
         salary_type: workType,
+        is_urgent: isUrgent,
+
+        // Pay amount (one of the three types)
+        salary:
+          workType === 'hour'
+            ? parseFloat(hourlyRate) || 0
+            : workType === 'day'
+            ? parseFloat(dailyWage) || 0
+            : parseFloat(monthlySalary) || 0,
+
+        // Common shift times (mapped per work type)
+        shift_start:
+          workType === 'hour' ? shiftStart
+          : workType === 'day' ? dailyShiftStart
+          : monthlyShiftStart,
+        shift_end:
+          workType === 'hour' ? shiftEnd
+          : workType === 'day' ? dailyShiftEnd
+          : monthlyShiftEnd,
+
+        // Hourly-specific
+        total_hours: workType === 'hour' ? parseFloat(totalHours) || null : null,
+        same_day_payment: workType === 'hour' ? sameDayPayment : false,
+
+        // Daily-specific
+        number_of_days: workType === 'day' ? parseInt(numberOfDays) || null : null,
+        start_date: workType === 'day' ? dailyStartDate || null : null,
+        food_included: workType === 'day' ? foodIncluded : false,
+        accommodation_included: workType === 'day' ? accommodationIncluded : false,
+        overtime_available: workType === 'day' ? overtimeAvailable : false,
+
+        // Monthly-specific
+        joining_date: workType === 'month' ? joiningDate || null : null,
+        working_days_per_week: workType === 'month' ? workingDaysPerWeek : null,
         experience_required: experienceRequired,
-        // ── Location (flat + PostGIS) ──
+        salary_negotiable: workType === 'month' ? salaryNegotiable : false,
+        pf_esi_included: workType === 'month' ? pfEsiIncluded : false,
+
+        // ── Step 3: Location ────────────────────────────────────────────
         latitude: locationCoords.latitude,
         longitude: locationCoords.longitude,
-        location_name: fullAddress.split(',')[0]?.trim() || 'Location', // first part as short name
+        location_name: fullAddress.split(',')[0]?.trim() || 'Location',
         full_address: fullAddress,
-        // ── Workers & Skills ──
+
+        // ── Step 4: Workers ─────────────────────────────────────────────
         required_skills: selectedSkills,
-        // ── Job flags ──
-        is_urgent: isUrgent,
+        quantity_total: workersNeeded,
         gender_preference: genderPref,
         contact_method: contactMethod,
-        // ── Workers count ──
-        quantity_total: workersNeeded,
       };
       
       await useJobStore.getState().createJob(jobData);
@@ -790,8 +825,8 @@ export default function PostJobScreen() {
                 <View style={styles.field}>
                   <FieldLabel>Start Date *</FieldLabel>
                   {Platform.OS === 'web'
-                    ? <WebInput mode="date" value={dailyStartDate} onChange={(v) => { setDailyStartDate(v); clearError('dailyStartDate'); }} />
-                    : <PickerButton label="Select Date" value={dailyStartDate} hasError={!!errors.dailyStartDate} onPress={() => { openPicker('date', 'dailyDate'); clearError('dailyStartDate'); }} />}
+                    ? <WebInput mode="date" value={dailyStartDate ? dailyStartDate.split('T')[0] : ''} onChange={(v) => { setDailyStartDate(formatForApi(v) || ''); clearError('dailyStartDate'); }} />
+                    : <PickerButton label="Select Date" value={formatForDisplay(dailyStartDate) || ''} hasError={!!errors.dailyStartDate} onPress={() => { openPicker('date', 'dailyDate'); clearError('dailyStartDate'); }} />}
                   <ErrorMsg msg={errors.dailyStartDate} />
                 </View>
                 <View style={styles.toggleCard}>
@@ -843,8 +878,8 @@ export default function PostJobScreen() {
                 <View style={styles.field}>
                   <FieldLabel>Joining Date *</FieldLabel>
                   {Platform.OS === 'web'
-                    ? <WebInput mode="date" value={joiningDate} onChange={(v) => { setJoiningDate(v); clearError('joiningDate'); }} />
-                    : <PickerButton label="Select Date" value={joiningDate} hasError={!!errors.joiningDate} onPress={() => { openPicker('date', 'monthlyDate'); clearError('joiningDate'); }} />}
+                    ? <WebInput mode="date" value={joiningDate ? joiningDate.split('T')[0] : ''} onChange={(v) => { setJoiningDate(formatForApi(v) || ''); clearError('joiningDate'); }} />
+                    : <PickerButton label="Select Date" value={formatForDisplay(joiningDate) || ''} hasError={!!errors.joiningDate} onPress={() => { openPicker('date', 'monthlyDate'); clearError('joiningDate'); }} />}
                   <ErrorMsg msg={errors.joiningDate} />
                 </View>
                 <View style={styles.field}>
@@ -1214,7 +1249,7 @@ export default function PostJobScreen() {
           {currentStep === 5 ? (
             <Animated.View style={{ flex: 1, transform: [{ translateX: shakeAnim }] }}>
               <TouchableOpacity
-                style={[styles.ctaBtn, (!acceptTerms || isPosting) && { opacity: 0.5 }]}
+                style={[styles.ctaBtn, styles.ctaBtnPrimary, (!acceptTerms || isPosting) && { opacity: 0.5 }]}
                 onPress={handlePost}
                 disabled={!acceptTerms || isPosting}
                 activeOpacity={0.88}

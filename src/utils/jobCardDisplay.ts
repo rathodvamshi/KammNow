@@ -110,7 +110,8 @@ const PAYMENT_SCHEDULE_LABELS: Record<PaymentSchedule, string> = {
   monthly: 'Monthly pay',
 };
 
-function formatPayAmount(amount: number): string {
+function formatPayAmount(amount: number | null | undefined): string {
+  if (amount == null) return 'N/A';
   if (amount >= 100000) {
     const l = amount / 100000;
     return `₹${l % 1 === 0 ? l.toFixed(0) : l.toFixed(1)}L`;
@@ -222,8 +223,8 @@ export function buildBenefits(job: Job): JobCardBenefit[] {
 
 function buildEmployerMeta(job: Job): string {
   const parts: string[] = [];
-  const rating = job.poster_rating ?? 0;
-  if (rating > 0) parts.push(`★ ${rating.toFixed(1)}`);
+  const rating = job.poster_rating;
+  if (rating != null && rating > 0) parts.push(`★ ${Number(rating).toFixed(1)}`);
   const completed = job.employer_completed_jobs ?? 0;
   if (completed > 0) parts.push(`${completed} gig${completed === 1 ? '' : 's'} posted`);
   else parts.push('New employer');
@@ -261,7 +262,7 @@ export function buildJobCardDisplay(job: Job): JobCardDisplay {
     const d2 = new Date(job.work_end_date).getTime();
     if (!isNaN(d1) && !isNaN(d2) && d2 >= d1) {
       const days = Math.floor((d2 - d1) / 86400000) + 1;
-      const total = days * job.pay_amount;
+      const total = days * (job.pay_amount || 0);
       payTotalInfo = `For ${days} day${days > 1 ? 's' : ''} • Total ₹${total.toLocaleString('en-IN')}`;
     }
   } else if (job.duration_text && job.pay_type === 'day') {
@@ -269,13 +270,13 @@ export function buildJobCardDisplay(job: Job): JobCardDisplay {
     const match = job.duration_text.match(/^(\d+)\s*day/i);
     if (match) {
       const days = parseInt(match[1], 10);
-      const total = days * job.pay_amount;
+      const total = days * (job.pay_amount || 0);
       payTotalInfo = `For ${days} day${days > 1 ? 's' : ''} • Total ₹${total.toLocaleString('en-IN')}`;
     }
   }
 
   const distanceText = job.distance_km != null 
-    ? `${job.distance_km < 1 ? '<1' : job.distance_km.toFixed(1)} km away` 
+    ? `${job.distance_km < 1 ? '<1' : Number(job.distance_km).toFixed(1)} km away` 
     : 'Location on apply';
 
   return {

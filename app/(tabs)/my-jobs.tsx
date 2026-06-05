@@ -56,9 +56,11 @@ export default function ManageJobsScreen() {
     } else if (!isSeeker && user?.id) {
       fetchMyJobs(user.id);
     }
-  }, [isSeeker, user]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSeeker, user?.id]);
 
-  const filteredSeekerApps = myApplications.filter(app => {
+  const filteredSeekerApps = (myApplications || []).filter(app => {
+    if (!app) return false;
     if (seekerStatusFilter === 'All') return true;
     return app.status === seekerStatusFilter.toLowerCase();
   });
@@ -79,7 +81,8 @@ export default function ManageJobsScreen() {
     enabled: isSeeker && filteredSeekerApps.length === 0,
   });
 
-  const filtered = myPostedJobs.filter((j) => {
+  const filtered = (myPostedJobs || []).filter((j) => {
+    if (!j) return false;
     if (selectedFilter === 'All') return !j.is_deleted;
     if (selectedFilter === 'Deleted') return j.is_deleted;
     // 'Active' filter maps to DB status = 'active'
@@ -354,7 +357,8 @@ export default function ManageJobsScreen() {
               style={{ flexGrow: 0, marginBottom: 8 }}
             >
               {SEEKER_STATUS_TABS.map((f) => {
-                const count = myApplications.filter((j) => {
+                const count = (myApplications || []).filter((j) => {
+                  if (!j) return false;
                   if (f === 'All') return true;
                   return j.status === f.toLowerCase();
                 }).length;
@@ -439,7 +443,8 @@ export default function ManageJobsScreen() {
               style={{ flexGrow: 0, marginBottom: 8 }}
             >
               {STATUS_FILTERS.map((f) => {
-                const count = myPostedJobs.filter((j) => {
+                const count = (myPostedJobs || []).filter((j) => {
+                  if (!j) return false;
                   if (f === 'All') return !j.is_deleted;
                   if (f === 'Deleted') return j.is_deleted;
                   const dbStatus = f === 'Active' ? 'active' : f.toLowerCase();

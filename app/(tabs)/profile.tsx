@@ -181,7 +181,7 @@ export default function ProfileScreen() {
         </View>
         <View style={styles.statBoxLarge}>
           <Ionicons name="star" size={24} color={Colors.gold} />
-          <Text style={styles.statBoxLargeVal}>{user?.worker_rating?.toFixed(1) ?? '0.0'}</Text>
+          <Text style={styles.statBoxLargeVal}>{user?.worker_rating ? parseFloat(user.worker_rating.toString()).toFixed(1) : '0.0'}</Text>
           <Text style={styles.statBoxLargeLbl}>Worker Rating</Text>
         </View>
       </View>
@@ -326,7 +326,7 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Rating Breakdown</Text>
         <View style={styles.ratingOverview}>
           <View style={styles.bigRatingBox}>
-            <Text style={styles.bigRatingNum}>{user?.worker_rating?.toFixed(1) ?? '0.0'}</Text>
+            <Text style={styles.bigRatingNum}>{user?.worker_rating ? parseFloat(user.worker_rating.toString()).toFixed(1) : '0.0'}</Text>
             <View style={styles.starsRow}>
               {Array.from({ length: 5 }).map((_, i) => (
                 <Ionicons key={i} name={i < Math.round(user?.worker_rating ?? 0) ? "star" : "star-outline"} size={12} color={Colors.gold} />
@@ -562,7 +562,7 @@ export default function ProfileScreen() {
                 ))}
               </View>
               <View style={styles.ratingOverviewRow}>
-                <Text style={styles.hugeRating}>{Math.max(user?.worker_rating || 0, user?.employer_rating || 0).toFixed(1)}</Text>
+                <Text style={styles.hugeRating}>{Math.max(parseFloat((user?.worker_rating || 0).toString()), parseFloat((user?.employer_rating || 0).toString())).toFixed(1)}</Text>
                 <View style={{ marginLeft: 8 }}>
                   <View style={{ flexDirection: 'row', marginBottom: 2 }}>
                     {[1, 2, 3, 4, 5].map(s => <Ionicons key={s} name="star" size={12} color={Colors.gold} />)}

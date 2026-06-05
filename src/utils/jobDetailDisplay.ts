@@ -160,7 +160,7 @@ export function buildJobDetailModel(job: Job): JobDetailModel {
 
   const employerStats = [
     { label: 'Gigs posted', value: String(job.employer_completed_jobs ?? 0) },
-    { label: 'Rating', value: `${(job.poster_rating ?? 0).toFixed(1)}★` },
+    { label: 'Rating', value: `${job.poster_rating != null ? Number(job.poster_rating).toFixed(1) : 'New'}★` },
     {
       label: 'Replies',
       value: job.employer_response_rate != null ? `${job.employer_response_rate}%` : '—',

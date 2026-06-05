@@ -1,9 +1,10 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import { matchingEngine, MatchingParams } from './matchingEngine';
+import { firebaseAuth } from './firebaseAuth';
 
-// Base URL — change to your Render backend or localhost for dev
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001/api/v1';
+// Base URL — ensure /api prefix is included for all route calls
+const BASE_URL = `${(process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(/\/$/, '')}/api`;
 
 export const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
@@ -13,16 +14,16 @@ export const api: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor — attach auth token
+// Request interceptor — attach Firebase auth token
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     try {
-      const token = await SecureStore.getItemAsync('auth_token');
+      const token = await firebaseAuth.getIdToken();
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
       }
     } catch {
-      // SecureStore unavailable (web) — skip
+      // Auth not available — skip
     }
     return config;
   },

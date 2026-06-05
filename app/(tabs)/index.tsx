@@ -47,6 +47,7 @@ import { useFilterStore } from '../../src/store/filterStore';
 import { fetchRecommendedJobs } from '../../src/services/api';
 import { RoleSwitcher } from '../../src/components/atoms/RoleSwitcher';
 import { CommonNavbar } from '../../src/components/organisms/CommonNavbar';
+import Reanimated, { FadeInDown, FadeOutLeft, SlideInDown, SlideOutUp } from 'react-native-reanimated';
 
 const LANGUAGES = [
   { key: 'en' as const, label: 'English', glyph: 'A', native: 'EN', sub: 'English' },
@@ -231,6 +232,78 @@ export default function HomeScreen() {
   const { savedAddresses, getActive, isLoaded, loadFromStorage } = useAddressStore();
   const { myApplications, receivedApplications, fetchReceivedApplications, fetchMyApplications, updateApplicationStatus } = useApplicationStore();
   const { myPostedJobs, fetchMyJobs, cachedFeed, setCachedFeed } = useJobStore();
+  // ── Realtime: track new job toast ─────────────────────────────────────────
+  const [newJobCount, setNewJobCount] = useState(0);
+  const newJobTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // When cachedFeed changes (via prependToFeed), check for _isNew entries
+  const prevFeedLengthRef = useRef(cachedFeed.length);
+  useEffect(() => {
+    if (cachedFeed.length > prevFeedLengthRef.current) {
+      const diff = cachedFeed.length - prevFeedLengthRef.current;
+      setNewJobCount((c) => c + diff);
+      // Auto-dismiss badge after 4 seconds
+      if (newJobTimerRef.current) clearTimeout(newJobTimerRef.current);
+      newJobTimerRef.current = setTimeout(() => setNewJobCount(0), 4000);
+    }
+    prevFeedLengthRef.current = cachedFeed.length;
+  }, [cachedFeed.length]);
+  // ──────────────────────────────────────────────────────────────────────────
+  
+  const handleJobPress = useCallback((job: any) => {
+    router.push(`/job/${job.id}` as any);
+  }, []);
+
+  const renderSpotlightItem = useCallback(({ item, index }: { item: any, index: number }) => {
+    const matchPct = [98, 95, 92, 88][index] ?? 85;
+    const catInfo = CATEGORIES.find(c => c.id === item.category) || { iconName: 'briefcase-outline' };
+    return (
+      <StaggeredCard
+        index={index}
+        style={styles.spotlightCard}
+        activeOpacity={0.93}
+        onPress={() => handleJobPress(item)}
+      >
+        <View style={styles.scRow1}>
+          <View style={styles.scIconBox}>
+            <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
+          </View>
+          <Text style={styles.scTitle} numberOfLines={2}>{item.title}</Text>
+        </View>
+        <View style={styles.scRow2}>
+          <View style={styles.scProviderGroup}>
+            <Text style={styles.scProvider} numberOfLines={1}>{item.poster_name}</Text>
+            <View style={styles.scRating}>
+              <Ionicons name="star" size={10} color={Colors.gold} />
+              <Text style={styles.scRatingText}> {item.poster_rating}</Text>
+            </View>
+          </View>
+          <View style={styles.scMatchBadge}>
+            <Text style={styles.scMatchText}>{matchPct}% match</Text>
+          </View>
+        </View>
+        <View style={styles.scDivider} />
+        <View style={styles.scFooter}>
+          <View style={styles.scPayBlock}>
+            <Text style={styles.scPay}>₹{item.pay_amount}</Text>
+            <Text style={styles.scPaySub}>/{item.pay_type}</Text>
+          </View>
+          <View style={styles.scDistBlock}>
+            <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
+            <Text style={styles.scDist}>{item.distance_km != null ? Number(item.distance_km).toFixed(1) : 'N/A'}km</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.scApplyBtn}
+            activeOpacity={0.82}
+            onPress={() => handleJobPress(item)}
+          >
+            <Text style={styles.scApplyText}>Apply</Text>
+            <Ionicons name="arrow-forward" size={11} color={Colors.white} style={{ marginLeft: 3 }} />
+          </TouchableOpacity>
+        </View>
+      </StaggeredCard>
+    );
+  }, [handleJobPress]);
 
   // ── Scroll-driven animations ──────────────────────────────────────────────
   const { height: windowHeight } = useWindowDimensions();
@@ -303,14 +376,14 @@ export default function HomeScreen() {
   
 
   useEffect(() => {
-    
       if (currentRole === 'provider' && user?.id) {
         fetchReceivedApplications(user.id);
         fetchMyJobs(user.id);
       } else if (currentRole === 'seeker' && user?.id) {
         fetchMyApplications(user.id);
       }
-  }, [currentRole]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRole, user?.id]);
 
   const [showLangModal, setShowLangModal] = useState(false);
   const modalAnim = useRef(new Animated.Value(0)).current;
@@ -598,8 +671,8 @@ export default function HomeScreen() {
     }
   }, [jobsData, setCachedFeed]);
 
-  // Fallback to cachedFeed if currently offline/pending and no data
-  const processedJobs = jobsData || cachedFeed || [];
+  // Merge real-time cachedFeed updates with fetched data (cachedFeed is prepended by socket events)
+  const processedJobs = cachedFeed.length > 0 ? cachedFeed : (jobsData || []);
 
   // Constant suggestions based on matching jobs
   const suggestedJobs = useMemo(() => {
@@ -926,61 +999,11 @@ export default function HomeScreen() {
                     snapToInterval={252}
                     decelerationRate="fast"
                     snapToAlignment="start"
+                    initialNumToRender={2}
+                    windowSize={3}
+                    removeClippedSubviews={true}
                     contentContainerStyle={styles.spotlightList}
-                    renderItem={({ item, index }) => {
-                      const matchPct = [98, 95, 92, 88][index] ?? 85;
-                      const catInfo = CATEGORIES.find(c => c.id === item.category) || { iconName: 'briefcase-outline' };
-                      return (
-                        <StaggeredCard
-                          index={index}
-                          style={styles.spotlightCard}
-                          activeOpacity={0.93}
-                          onPress={() => router.push(`/job/${item.id}` as any)}
-                        >
-                          {/* Row 1: Icon  +  Job Title */}
-                          <View style={styles.scRow1}>
-                            <View style={styles.scIconBox}>
-                              <Ionicons name={catInfo.iconName as any} size={18} color={Colors.saffron} />
-                            </View>
-                            <Text style={styles.scTitle} numberOfLines={2}>{item.title}</Text>
-                          </View>
-                          {/* Row 2: Provider + Rating  |  Match % */}
-                          <View style={styles.scRow2}>
-                            <View style={styles.scProviderGroup}>
-                              <Text style={styles.scProvider} numberOfLines={1}>{item.poster_name}</Text>
-                              <View style={styles.scRating}>
-                                <Ionicons name="star" size={10} color={Colors.gold} />
-                                <Text style={styles.scRatingText}> {item.poster_rating}</Text>
-                              </View>
-                            </View>
-                            <View style={styles.scMatchBadge}>
-                              <Text style={styles.scMatchText}>{matchPct}% match</Text>
-                            </View>
-                          </View>
-                          {/* Divider */}
-                          <View style={styles.scDivider} />
-                          {/* Row 3: Pay  +  Distance  +  Apply */}
-                          <View style={styles.scFooter}>
-                            <View style={styles.scPayBlock}>
-                              <Text style={styles.scPay}>₹{item.pay_amount}</Text>
-                              <Text style={styles.scPaySub}>/{item.pay_type}</Text>
-                            </View>
-                            <View style={styles.scDistBlock}>
-                              <Ionicons name="location-outline" size={10} color={Colors.saffronDark} />
-                              <Text style={styles.scDist}>{item.distance_km?.toFixed(1)}km</Text>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.scApplyBtn}
-                              activeOpacity={0.82}
-                              onPress={() => router.push(`/job/${item.id}` as any)}
-                            >
-                              <Text style={styles.scApplyText}>Apply</Text>
-                              <Ionicons name="arrow-forward" size={11} color={Colors.white} style={{ marginLeft: 3 }} />
-                            </TouchableOpacity>
-                          </View>
-                        </StaggeredCard>
-                      );
-                    }}
+                    renderItem={renderSpotlightItem}
                   />
                 </View>
               ) : null
@@ -996,9 +1019,9 @@ export default function HomeScreen() {
                 {/* Hiring Overview Metric Grid */}
                 <View style={styles.metricsGrid}>
                   {[
-                    { label: 'Active Jobs', value: `${myPostedJobs.filter(j => j.status === 'active').length} Active`, color: '#92763B', bg: '#F5F1E6', icon: 'briefcase' },
-                    { label: 'Applicants', value: `${receivedApplications.length} Total`, color: '#9A3412', bg: '#FFEDD5', icon: 'people' },
-                    { label: 'Pending Reviews', value: `${receivedApplications.filter(a => a.status === 'pending').length} Review`, color: '#4D5D3B', bg: '#EAF0E1', icon: 'time' },
+                    { label: 'Active Jobs', value: `${(myPostedJobs || []).filter(j => j?.status === 'active').length} Active`, color: '#92763B', bg: '#F5F1E6', icon: 'briefcase' },
+                    { label: 'Applicants', value: `${(receivedApplications || []).length} Total`, color: '#9A3412', bg: '#FFEDD5', icon: 'people' },
+                    { label: 'Pending Reviews', value: `${(receivedApplications || []).filter(a => a?.status === 'pending').length} Review`, color: '#4D5D3B', bg: '#EAF0E1', icon: 'time' },
                     { label: 'Hiring Speed', value: '92% Rate', color: '#57534E', bg: '#F5F5F4', icon: 'flash' },
                   ].map((metric) => (
                     <View key={metric.label} style={styles.metricCard}>
@@ -1038,7 +1061,7 @@ export default function HomeScreen() {
                           </View>
                           <View style={styles.applicantRowInfo}>
                             <Text style={styles.applicantRowName}>{applicantUser?.name}</Text>
-                            <Text style={styles.applicantRowMeta}>⭐ {applicantUser.worker_rating?.toFixed(1) || '4.5'} • {applicantUser.jobs_completed || 0} Gigs Completed • 1.2 km away</Text>
+                            <Text style={styles.applicantRowMeta}>⭐ {applicantUser.worker_rating ? parseFloat(applicantUser.worker_rating).toFixed(1) : '4.5'} • {applicantUser.jobs_completed || 0} Gigs Completed • 1.2 km away</Text>
                           </View>
                         </View>
                         <View style={styles.applicantSkillsGrid}>
@@ -1105,18 +1128,61 @@ export default function HomeScreen() {
                 : paginatedJobs.length === 0
                   ? renderEmpty()
                   : paginatedJobs.map((job: any) => (
-                    <JobCard
+                    <Reanimated.View
                       key={job.id}
-                      job={job}
-                      onPress={(j) => router.push(`/job/${j.id}` as any)}
-                      onApply={(j) => router.push(`/job/${j.id}` as any)}
-                    />
+                      entering={job._isNew ? FadeInDown.springify().damping(14) : undefined}
+                      exiting={FadeOutLeft.duration(300)}
+                    >
+                      <JobCard
+                        job={job}
+                        onPress={handleJobPress}
+                        onApply={handleJobPress}
+                      />
+                    </Reanimated.View>
                   ))
               }
               {renderFooter()}
             </View>
           )}
         </Animated.ScrollView>
+
+        {/* ── Realtime: "New Nearby Job" floating badge ───────────────────── */}
+        {newJobCount > 0 && (
+          <Reanimated.View
+            entering={SlideInDown.springify().damping(16)}
+            exiting={SlideOutUp.duration(250)}
+            style={{
+              position: 'absolute',
+              top: 16,
+              alignSelf: 'center',
+              backgroundColor: Colors.saffron,
+              borderRadius: 24,
+              paddingHorizontal: 18,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 8,
+              elevation: 8,
+              zIndex: 999,
+            }}
+          >
+            <View style={{
+              width: 8, height: 8, borderRadius: 4,
+              backgroundColor: Colors.white, marginRight: 8, opacity: 0.9
+            }} />
+            <Text style={{
+              color: Colors.white,
+              fontFamily: FontFamily.headingBold,
+              fontSize: 14,
+            }}>
+              {newJobCount === 1 ? '1 New Nearby Job!' : `${newJobCount} New Nearby Jobs!`}
+            </Text>
+          </Reanimated.View>
+        )}
+        {/* ────────────────────────────────────────────────────────────────── */}
 
         {/* Fixed chrome — outside ScrollView so category taps never shift layout */}
         {activeViewRole === 'seeker' && isHeaderStuck && (
@@ -1180,9 +1246,9 @@ export default function HomeScreen() {
                 contentContainerStyle={styles.trackerTabsScroll}
                 style={{ marginBottom: 16 }}
               >
-                {useApplicationStore.getState().myApplications.slice(0, 5).map((app, idx) => (
+                {(useApplicationStore.getState().myApplications || []).slice(0, 5).map((app, idx) => (
                   <TouchableOpacity
-                    key={app.id}
+                    key={app?.id || idx}
                     style={[
                       styles.trackerTabBtn,
                       activeAppIndex === idx && styles.trackerTabBtnActive
@@ -1194,9 +1260,9 @@ export default function HomeScreen() {
                       styles.trackerTabBtnText,
                       activeAppIndex === idx && styles.trackerTabBtnTextActive
                     ]}>
-                      {app.job?.title || 'Job Application'}
+                      {app?.job?.title || 'Job Application'}
                     </Text>
-                    {app.status === 'accepted' && (
+                    {app?.status === 'accepted' && (
                       <View style={styles.trackerTabBadgePulse} />
                     )}
                   </TouchableOpacity>
@@ -1213,21 +1279,21 @@ export default function HomeScreen() {
                       <Text style={styles.trackerJobTitle}>{currentApp.job?.title || 'Unknown Job'}</Text>
                       <View style={[
                         styles.trackerStatusBadge,
-                        currentApp.status === 'pending' && styles.trackerBadgeBlue,
-                        currentApp.status === 'accepted' && styles.trackerBadgeGreen,
+                        currentApp?.status === 'pending' && styles.trackerBadgeBlue,
+                        currentApp?.status === 'accepted' && styles.trackerBadgeGreen,
                       ]}>
                         <Text style={[
                           styles.trackerStatusText,
-                          currentApp.status === 'pending' && styles.trackerStatusTextBlue,
-                          currentApp.status === 'accepted' && styles.trackerStatusTextGreen,
+                          currentApp?.status === 'pending' && styles.trackerStatusTextBlue,
+                          currentApp?.status === 'accepted' && styles.trackerStatusTextGreen,
                         ]}>
-                          {currentApp.status.toUpperCase()}
+                          {currentApp?.status?.toUpperCase() || ''}
                         </Text>
                       </View>
                     </View>
                     
                     <Text style={styles.trackerJobCompany}>
-                      <Ionicons name="business-outline" size={12} color={Colors.gray2} /> {currentApp.job?.poster_name || 'Employer'} • {currentApp.job?.pay_amount ? `₹${currentApp.job.pay_amount}` : 'TBD'}
+                      <Ionicons name="business-outline" size={12} color={Colors.gray2} /> {currentApp?.job?.poster_name || 'Employer'} • {currentApp?.job?.pay_amount ? `₹${currentApp?.job?.pay_amount}` : 'TBD'}
                     </Text>
 
                     {/* Visual Timeline (Horizontal Stepper) */}
@@ -1235,8 +1301,8 @@ export default function HomeScreen() {
                       <View style={styles.stepperProgressTrack}>
                         <View style={[
                           styles.stepperProgressFill,
-                          { width: currentApp.status === 'accepted' ? '100%' : '50%' },
-                          currentApp.status === 'accepted' && styles.stepperFillGreen,
+                          { width: currentApp?.status === 'accepted' ? '100%' : '50%' },
+                          currentApp?.status === 'accepted' && styles.stepperFillGreen,
                         ]} />
                       </View>
 
@@ -1250,29 +1316,29 @@ export default function HomeScreen() {
                       <View style={styles.stepperStepItem}>
                         <View style={[
                           styles.stepperIconCircle,
-                          currentApp.status === 'accepted' ? styles.stepperIconCircleCompletedGreen : styles.stepperIconCircleActive
+                          currentApp?.status === 'accepted' ? styles.stepperIconCircleCompletedGreen : styles.stepperIconCircleActive
                         ]}>
-                          <Ionicons name={currentApp.status === 'accepted' ? "gift-outline" : "hourglass-outline"} size={15} color={currentApp.status === 'accepted' ? Colors.white : Colors.saffronDark} />
+                          <Ionicons name={currentApp?.status === 'accepted' ? "gift-outline" : "hourglass-outline"} size={15} color={currentApp?.status === 'accepted' ? Colors.white : Colors.saffronDark} />
                         </View>
                         <Text style={[
                           styles.stepperStepLabel,
-                          currentApp.status === 'accepted' ? styles.stepperStepLabelCompleted : styles.stepperStepLabelActive
-                        ]} numberOfLines={1}>{currentApp.status === 'accepted' ? 'Accepted' : currentApp.status === 'rejected' ? 'Rejected' : 'Pending'}</Text>
+                          currentApp?.status === 'accepted' ? styles.stepperStepLabelCompleted : styles.stepperStepLabelActive
+                        ]} numberOfLines={1}>{currentApp?.status === 'accepted' ? 'Accepted' : currentApp?.status === 'rejected' ? 'Rejected' : 'Pending'}</Text>
                       </View>
                     </View>
 
                     {/* Footer scheduled details card */}
                     <View style={[
                       styles.trackerScheduleAlert,
-                      currentApp.status === 'pending' && styles.trackerAlertBlue,
-                      currentApp.status === 'accepted' && styles.trackerAlertGreen,
+                      currentApp?.status === 'pending' && styles.trackerAlertBlue,
+                      currentApp?.status === 'accepted' && styles.trackerAlertGreen,
                     ]}>
                       <Ionicons
                         name="information-circle-outline"
                         size={18}
                         color={
-                          currentApp.status === 'pending' ? '#1E88E5' :
-                            currentApp.status === 'accepted' ? '#2E7D32' :
+                          currentApp?.status === 'pending' ? '#1E88E5' :
+                            currentApp?.status === 'accepted' ? '#2E7D32' :
                               Colors.saffronDark
                         }
                         style={{ marginRight: 8, marginTop: 2 }}
@@ -1280,15 +1346,15 @@ export default function HomeScreen() {
                       <View style={{ flex: 1 }}>
                         <Text style={[
                           styles.trackerAlertTitle,
-                          currentApp.status === 'pending' && styles.trackerAlertTitleBlue,
-                          currentApp.status === 'accepted' && styles.trackerAlertTitleGreen,
+                          currentApp?.status === 'pending' && styles.trackerAlertTitleBlue,
+                          currentApp?.status === 'accepted' && styles.trackerAlertTitleGreen,
                         ]}>Application Status</Text>
                         <Text style={[
                           styles.trackerAlertText,
-                          currentApp.status === 'pending' && styles.trackerAlertTextBlue,
-                          currentApp.status === 'accepted' && styles.trackerAlertTextGreen,
+                          currentApp?.status === 'pending' && styles.trackerAlertTextBlue,
+                          currentApp?.status === 'accepted' && styles.trackerAlertTextGreen,
                         ]}>
-                          {currentApp.status === 'pending' ? 'Your application has been received and is waiting for employer review.' : `The employer has marked your application as ${currentApp.status}.`}
+                          {currentApp?.status === 'pending' ? 'Your application has been received and is waiting for employer review.' : `The employer has marked your application as ${currentApp?.status || 'unknown'}.`}
                         </Text>
                       </View>
                     </View>
@@ -1297,8 +1363,8 @@ export default function HomeScreen() {
                     <TouchableOpacity
                       style={[
                         styles.trackerActionBtn,
-                        currentApp.status === 'pending' && styles.trackerActionBtnBlue,
-                        currentApp.status === 'accepted' && styles.trackerActionBtnGreen,
+                        currentApp?.status === 'pending' && styles.trackerActionBtnBlue,
+                        currentApp?.status === 'accepted' && styles.trackerActionBtnGreen,
                       ]}
                       activeOpacity={0.8}
                       onPress={() => {

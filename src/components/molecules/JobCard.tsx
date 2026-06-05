@@ -19,6 +19,7 @@ import { Colors, Radius, FontFamily, FontSize, Shadow } from '../../theme';
 import { Avatar } from '../atoms/Avatar';
 import { buildJobCardDisplay, type JobCardBenefit } from '../../utils/jobCardDisplay';
 import type { Job } from '../../types';
+import * as Haptics from 'expo-haptics';
 
 interface JobCardProps {
   job: Job;
@@ -45,7 +46,10 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
     <Animated.View style={[styles.wrap, cardStyle]}>
       <Pressable
         style={styles.cardOuter}
-        onPress={() => onPress(job)}
+        onPress={() => {
+          if (Platform.OS !== 'web') Haptics.selectionAsync();
+          onPress(job);
+        }}
         onPressIn={() => (cardScale.value = withSpring(0.985, { damping: 15, stiffness: 300 }))}
         onPressOut={() => (cardScale.value = withSpring(1, { damping: 15, stiffness: 300 }))}
       >
@@ -65,7 +69,7 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
                 <Text style={styles.employerName} numberOfLines={1}>{d.employerName}</Text>
                 <View style={styles.ratingRow}>
                   <Ionicons name="star" size={12} color="#F59E0B" />
-                  <Text style={styles.ratingText}>{d.ratingValue ? d.ratingValue.toFixed(1) : 'New'}</Text>
+                  <Text style={styles.ratingText}>{d.ratingValue != null ? Number(d.ratingValue).toFixed(1) : 'New'}</Text>
                   <Text style={styles.ratingLabel}> • Employer</Text>
                 </View>
               </View>
@@ -156,7 +160,10 @@ export const JobCard: React.FC<JobCardProps> = memo(({ job, onPress, onApply }) 
 
             <Animated.View style={[styles.applyBtnOuter, applyStyle]}>
               <Pressable
-                onPress={() => onApply(job)}
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                  onApply(job);
+                }}
                 onPressIn={() => (applyScale.value = withSpring(0.94, { damping: 15, stiffness: 300 }))}
                 onPressOut={() => (applyScale.value = withSpring(1, { damping: 15, stiffness: 300 }))}
                 disabled={d.isFull}
